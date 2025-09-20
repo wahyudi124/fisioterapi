@@ -18,11 +18,12 @@ unsigned long startTime = 0;
 unsigned long therapyTime = 0;
 bool therapyActive = false;
 
-// Button debouncing
-bool btn1State = false, btn2State = false, btn3State = false;
-bool lastBtn1State = false, lastBtn2State = false, lastBtn3State = false;
-unsigned long lastDebounce1 = 0, lastDebounce2 = 0, lastDebounce3 = 0;
-const unsigned long debounceDelay = 50;
+// Button variables
+unsigned long lastButtonPress = 0;
+unsigned long btn1HoldStart = 0;
+bool btn1Holding = false;
+const unsigned long debounceDelay = 300;
+const unsigned long longPressDelay = 2000;
 
 void setup() {
   Serial.begin(9600);
@@ -45,19 +46,52 @@ void loop() {
   bool btn2 = !digitalRead(BTN2);
   bool btn3 = !digitalRead(BTN3);
   
-  // Debug print
-  if (btn1 || btn2 || btn3) {
+  // Handle BTN1 long press for cancel (only in menu states and therapy)
+  if (btn1 && ((state >= 1 && state <= 3) || (state == 5 && therapyActive))) {
+    if (!btn1Holding) {
+      btn1HoldStart = millis();
+      btn1Holding = true;
+    }
+    else if (millis() - btn1HoldStart >= longPressDelay) {
+      // Long press - cancel
+      if (state == 5 && therapyActive) {
+        therapyActive = false;
+      }
+      state = 0;
+      selection = 0;
+      btn1Holding = false;
+      lcd.clear();
+      lcd.setCursor(3, 0);
+      lcd.print("CANCELLED");
+      delay(1500);
+      lcd.clear();
+      lcd.setCursor(4, 0);
+      lcd.print("WELCOME");
+      lcd.setCursor(2, 1);
+      lcd.print("Press any key");
+      return;
+    }
+  }
+  else {
+    btn1Holding = false;
+  }
+  
+  // Normal button handling with debounce
+  if ((btn1 || btn2 || btn3) && (millis() - lastButtonPress > debounceDelay)) {
+    lastButtonPress = millis();
+    
     Serial.print("Buttons: ");
     Serial.print(btn1); Serial.print(" ");
     Serial.print(btn2); Serial.print(" ");
     Serial.println(btn3);
-    delay(300); // Simple debounce
     
     switch(state) {
-      case 0: // Welcome -> Mode selection
-        state = 1;
-        selection = 0;
-        showModeSelection();
+      case 0: // Welcome
+        if (btn1 || btn2 || btn3) {
+          state = 1;
+          selection = 0;
+          showModeSelection();
+        }
         break;
         
       case 1: // Mode selection
@@ -107,39 +141,6 @@ void loop() {
           duration = selection;
           state = 5;
           startCountdown();
-        }
-        break;
-        
-      case 4: // Start confirmation
-        if (btn2 && selection > 0) {
-          selection--;
-          showStartScreen();
-        }
-        else if (btn3 && selection < 1) {
-          selection++;
-          showStartScreen();
-        }
-        else if (btn1) {
-          if (selection == 0) {
-            state = 5;
-            startCountdown();
-          } else {
-            state = 3;
-            selection = 0;
-            showDurationSelection();
-          }
-        }
-        break;
-        
-      case 5: // During therapy - force stop
-        if (btn1) {
-          therapyActive = false;
-          state = 0;
-          lcd.clear();
-          lcd.setCursor(3, 0);
-          lcd.print("STOPPED");
-          delay(2000);
-          setup();
         }
         break;
     }
