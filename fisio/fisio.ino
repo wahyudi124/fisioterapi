@@ -127,9 +127,15 @@ void loop() {
     else if (millis() - btn1HoldStart >= longPressDelay) {
       if (state == 5 && therapyActive) {
         therapyActive = false;
-        digitalWrite(RELAY_PIN, LOW);
         stepper.setMaxSpeed(MAX_SPEED);
         gotoAngle(startPosition);
+        
+        // Wait for motor to reach start position
+        while(stepper.distanceToGo() != 0) {
+          stepper.run();
+        }
+        
+        digitalWrite(RELAY_PIN, LOW);
       }
       state = 6;
       selection = 0;
@@ -307,9 +313,15 @@ void updateTherapyTimer() {
   
   if (remaining <= 0) {
     therapyActive = false;
-    digitalWrite(RELAY_PIN, LOW);
     stepper.setMaxSpeed(MAX_SPEED);
     gotoAngle(startPosition);
+    
+    // Wait for motor to reach start position
+    while(stepper.distanceToGo() != 0) {
+      stepper.run();
+    }
+    
+    digitalWrite(RELAY_PIN, LOW);
     state = 7;
     finishScreenActive = true;
     finishScreenStart = millis();
