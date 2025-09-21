@@ -33,8 +33,8 @@ const float STARTUP_ACCEL = 200.0;
 
 // Variables
 int state = 0;
-int mode = 0; // 0=panas, 1=dingin
-int heatLevel = 0; // 0=HIGH, 1=MEDIUM, 2=LOW (only for panas mode)
+int mode = 0; // 0=hangat, 1=dingin
+int heatLevel = 0; // 0=HIGH, 1=MEDIUM, 2=LOW (only for hangat mode)
 int angle = 0; // 0=40°, 1=50°, 2=60°
 int duration = 0; // 0=5min, 1=10min, 2=15min
 int selection = 0;
@@ -123,7 +123,7 @@ void turnOffAllTherapyRelays() {
 void activateTherapyRelay() {
   turnOffAllTherapyRelays(); // Safety: turn off all first
   
-  if (mode == 0) { // Panas mode
+  if (mode == 0) { // Hangat mode
     if (heatLevel == 0) digitalWrite(RELAY_HEAT_HIGH, HIGH);
     else if (heatLevel == 1) digitalWrite(RELAY_HEAT_MEDIUM, HIGH);
     else digitalWrite(RELAY_HEAT_LOW, HIGH);
@@ -174,10 +174,10 @@ void setup() {
   stepper.setAcceleration(ACCEL);
   
   // Welcome screen
-  lcd.setCursor(4, 0);
-  lcd.print("WELCOME");
-  lcd.setCursor(2, 1);
-  lcd.print("Press any key");
+  lcd.setCursor(2, 0);
+  lcd.print("FISIOTERAPI");
+  lcd.setCursor(1, 1);
+  lcd.print("Tekan tombol...");
 }
 
 void loop() {
@@ -212,8 +212,10 @@ void loop() {
       cancelScreenActive = true;
       cancelScreenStart = millis();
       lcd.clear();
-      lcd.setCursor(3, 0);
-      lcd.print("CANCELLED");
+      lcd.setCursor(4, 0);
+      lcd.print("DIBATAL");
+      lcd.setCursor(1, 1);
+      lcd.print("Kembali menu");
       return;
     }
   }
@@ -246,7 +248,7 @@ void loop() {
         }
         else if (btn1) {
           mode = selection;
-          if (mode == 0) { // Panas mode - go to heat level selection
+          if (mode == 0) { // Hangat mode - go to heat level selection
             state = 2;
             selection = 0;
             showHeatLevelSelection();
@@ -258,7 +260,7 @@ void loop() {
         }
         break;
         
-      case 2: // Heat level selection (only for panas mode)
+      case 2: // Heat level selection (only for hangat mode)
         if (btn2 && selection > 0) {
           selection--;
           showHeatLevelSelection();
@@ -333,26 +335,26 @@ void loop() {
 
 void showModeSelection() {
   lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Mode Terapi:");
-  lcd.setCursor(5, 1);
-  lcd.print(selection == 0 ? "PANAS" : "DINGIN");
+  lcd.setCursor(2, 0);
+  lcd.print("Pilih Mode");
+  lcd.setCursor(4, 1);
+  lcd.print(selection == 0 ? "HANGAT" : "DINGIN");
 }
 
 void showHeatLevelSelection() {
   lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Level Panas:");
-  lcd.setCursor(6, 1);
-  if (selection == 0) lcd.print("HIGH");
-  else if (selection == 1) lcd.print("MEDIUM");
-  else lcd.print("LOW");
+  lcd.setCursor(1, 0);
+  lcd.print("Level Hangat");
+  lcd.setCursor(4, 1);
+  if (selection == 0) lcd.print("TINGGI");
+  else if (selection == 1) lcd.print("SEDANG");
+  else lcd.print("RENDAH");
 }
 
 void showAngleSelection() {
   lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Kemiringan:");
+  lcd.setCursor(2, 0);
+  lcd.print("Sudut Terapi");
   lcd.setCursor(6, 1);
   if (selection == 0) lcd.print("40°");
   else if (selection == 1) lcd.print("50°");
@@ -361,9 +363,9 @@ void showAngleSelection() {
 
 void showDurationSelection() {
   lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Durasi Terapi:");
-  lcd.setCursor(6, 1);
+  lcd.setCursor(2, 0);
+  lcd.print("Waktu Terapi");
+  lcd.setCursor(5, 1);
   if (selection == 0) lcd.print("5 min");
   else if (selection == 1) lcd.print("10 min");
   else lcd.print("15 min");
@@ -380,10 +382,10 @@ void startCountdown() {
   countdownActive = true;
   
   lcd.clear();
-  lcd.setCursor(6, 0);
-  lcd.print("START");
-  lcd.setCursor(7, 1);
-  lcd.print(countdownValue);
+  lcd.setCursor(4, 0);
+  lcd.print("MEMULAI");
+  lcd.setCursor(6, 1);
+  lcd.print("3");
 }
 
 void handleCountdown() {
@@ -401,17 +403,19 @@ void handleCountdown() {
       buzzerStart();
       state = 6;
       lcd.clear();
-      lcd.setCursor(0, 0);
+      lcd.setCursor(2, 0);
       if (mode == 0) {
-        lcd.print("Panas ");
-        lcd.print((heatLevel == 0) ? "H " : (heatLevel == 1) ? "M " : "L ");
+        lcd.print("Hangat ");
+        lcd.print((heatLevel == 0) ? "T" : (heatLevel == 1) ? "S" : "R");
+        lcd.print(" ");
+        lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
       } else {
         lcd.print("Dingin ");
+        lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
       }
-      lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
     } else {
       countdownStart = millis();
-      lcd.setCursor(7, 1);
+      lcd.setCursor(6, 1);
       lcd.print(countdownValue);
     }
   }
@@ -438,10 +442,10 @@ void updateTherapyTimer() {
     finishScreenActive = true;
     finishScreenStart = millis();
     lcd.clear();
-    lcd.setCursor(3, 0);
+    lcd.setCursor(4, 0);
     lcd.print("SELESAI");
     lcd.setCursor(1, 1);
-    lcd.print("Terapi Selesai");
+    lcd.print("Terapi selesai");
     return;
   }
   
@@ -450,13 +454,14 @@ void updateTherapyTimer() {
     int seconds = (remaining % 60000) / 1000;
     
     lcd.setCursor(0, 1);
-    lcd.print("Sisa: ");
+    lcd.print("                "); // Clear line
+    lcd.setCursor(3, 1);
+    lcd.print("Sisa ");
     if (minutes < 10) lcd.print("0");
     lcd.print(minutes);
     lcd.print(":");
     if (seconds < 10) lcd.print("0");
     lcd.print(seconds);
-    lcd.print(" 1:STOP");
     
     lastLCDUpdate = millis();
   }
@@ -481,10 +486,10 @@ void handleFinishScreen() {
     stepper.disableOutputs();
     state = 0;
     lcd.clear();
-    lcd.setCursor(4, 0);
-    lcd.print("WELCOME");
-    lcd.setCursor(2, 1);
-    lcd.print("Press any key");
+    lcd.setCursor(2, 0);
+    lcd.print("FISIOTERAPI");
+    lcd.setCursor(1, 1);
+    lcd.print("Tekan tombol...");
   }
 }
 
@@ -494,9 +499,9 @@ void handleCancelScreen() {
     stepper.disableOutputs();
     state = 0;
     lcd.clear();
-    lcd.setCursor(4, 0);
-    lcd.print("WELCOME");
-    lcd.setCursor(2, 1);
-    lcd.print("Press any key");
+    lcd.setCursor(2, 0);
+    lcd.print("FISIOTERAPI");
+    lcd.setCursor(1, 1);
+    lcd.print("Tekan tombol...");
   }
 }
