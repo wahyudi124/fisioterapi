@@ -19,6 +19,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 AccelStepper stepper(AccelStepper::DRIVER, PUL_PIN, DIR_PIN);
 const long STEPS_PER_REV = 6400;
 const float MAX_SPEED = 1200.0;
+const float THERAPY_SPEED = 2400.0; // Faster speed for therapy swing
 const float ACCEL = 1200.0;
 
 // Variables
@@ -42,6 +43,10 @@ const unsigned long motorDelay = 2000; // 2 seconds between movements
 int countdownValue = 0;
 unsigned long countdownStart = 0;
 bool countdownActive = false;
+
+// LCD update variables (separate from motor timing)
+unsigned long lastLCDUpdate = 0;
+const unsigned long lcdUpdateInterval = 1000; // Update LCD every 1 second
 
 // Finish screen variables
 unsigned long finishScreenStart = 0;
@@ -108,6 +113,7 @@ void loop() {
         therapyActive = false;
         digitalWrite(RELAY_PIN, LOW); // Turn off relay
         stepper.disableOutputs(); // Disable stepper
+        stepper.setMaxSpeed(MAX_SPEED); // Reset to normal speed
       }
       state = 6; // Cancel screen state
       selection = 0;
@@ -286,6 +292,7 @@ void updateTherapyTimer() {
     therapyActive = false;
     digitalWrite(RELAY_PIN, LOW); // Turn off relay
     stepper.disableOutputs(); // Disable stepper
+    stepper.setMaxSpeed(MAX_SPEED); // Reset to normal speed
     state = 7; // Finish screen state
     finishScreenActive = true;
     finishScreenStart = millis();
@@ -297,18 +304,48 @@ void updateTherapyTimer() {
     return;
   }
   
-  // Display remaining time
-  int minutes = remaining / 60000;
-  int seconds = (remaining % 60000) / 1000;
-  
-  lcd.setCursor(0, 1);
-  lcd.print("Sisa: ");
-  if (minutes < 10) lcd.print("0");
-  lcd.print(minutes);
-  lcd.print(":");
-  if (seconds < 10) lcd.print("0");
-  lcd.print(seconds);
-  lcd.print(" 1:STOP");
+  // Update LCD display only every second (separate from motor timing)
+  if (millis() - lastLCDUpdate >= lcdUpdateInterval) {
+    int minutes = remaining / 60000;
+    int seconds = (remaining % 60000) / 1000;
+    
+    lcd.setCursor(0, 1);
+    lcd.print("Sisa: ");
+    if (minutes < 10) lcd.print("0");
+    lcd.print(minutes);
+    lcd.print(":");
+    if (seconds < 10) lcd.print("0");
+    lcd.print(seconds);
+    lcd.print(" 1:STOP");
+    
+    lastLCDUpdate = millis();
+  }
+}
+
+void handleFinishScreen() {
+  if (millis() - finishScreenStart >= 3000) {
+    finishScreenActive = false;
+    state = 0;
+    stepper.setMaxSpeed(MAX_SPEED);
+    lcd.clear();
+    lcd.setCursor(4, 0);
+    lcd.print("WELCOME");
+    lcd.setCursor(2, 1);
+    lcd.print("Press any key");
+  }
+}
+
+void handleCancelScreen() {
+  if (millis() - cancelScreenStart >= 1500) {
+    cancelScreenActive = false;
+    state = 0;
+    stepper.setMaxSpeed(MAX_SPEED);
+    lcd.clear();
+    lcd.setCursor(4, 0);
+    lcd.print("WELCOME");
+    lcd.setCursor(2, 1);
+    lcd.print("Press any key");
+  }
 }
 
 void controlMotor() {
@@ -327,7 +364,7 @@ void controlMotor() {
 }
 
 void handleCountdown() {
-  if (millis() - countdownStart >= 1000) {
+  if (millis() - countdownStart >= lcdUpdateInterval) {
     countdownValue--;
     if (countdownValue > 0) {
       lcd.setCursor(7, 1);
@@ -340,37 +377,17 @@ void handleCountdown() {
       state = 5;
       startTime = millis();
       lastMotorMove = millis();
+      lastLCDUpdate = millis();
       motorDirection = true;
       therapyTime = (duration == 0) ? 300000 : (duration == 1) ? 600000 : 900000;
+      
+      // Set faster speed for therapy
+      stepper.setMaxSpeed(THERAPY_SPEED);
       
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("TERAPI AKTIF");
     }
-  }
-}
-
-void handleFinishScreen() {
-  if (millis() - finishScreenStart >= 3000) {
-    finishScreenActive = false;
-    state = 0;
-    lcd.clear();
-    lcd.setCursor(4, 0);
-    lcd.print("WELCOME");
-    lcd.setCursor(2, 1);
-    lcd.print("Press any key");
-  }
-}
-
-void handleCancelScreen() {
-  if (millis() - cancelScreenStart >= 1500) {
-    cancelScreenActive = false;
-    state = 0;
-    lcd.clear();
-    lcd.setCursor(4, 0);
-    lcd.print("WELCOME");
-    lcd.setCursor(2, 1);
-    lcd.print("Press any key");
   }
 }
 
