@@ -14,6 +14,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define DIR_PIN 14   // DIR
 #define ENA_PIN 13   // ENA
 #define RELAY_PIN 27
+#define BUZZER_PIN 26
 
 // Stepper motor setup
 AccelStepper stepper(AccelStepper::DRIVER, PUL_PIN, DIR_PIN);
@@ -74,6 +75,37 @@ void gotoAngle(float deg) {
   stepper.moveTo(degToSteps(actualAngle));
 }
 
+// Buzzer functions
+void buzzerBeep() {
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(50);
+  digitalWrite(BUZZER_PIN, LOW);
+}
+
+void buzzerStart() {
+  for(int i = 0; i < 2; i++) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(100);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(100);
+  }
+}
+
+void buzzerFinish() {
+  for(int i = 0; i < 3; i++) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(200);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(100);
+  }
+}
+
+void buzzerCancel() {
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(300);
+  digitalWrite(BUZZER_PIN, LOW);
+}
+
 void setup() {
   Serial.begin(9600);
   lcd.init();
@@ -89,6 +121,7 @@ void setup() {
   stepper.setAcceleration(ACCEL);
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW);
+  pinMode(BUZZER_PIN, OUTPUT);
   
   // Move motor to start position on startup with slow smooth movement
   digitalWrite(RELAY_PIN, HIGH);
@@ -138,6 +171,7 @@ void loop() {
         
         digitalWrite(RELAY_PIN, LOW);
       }
+      buzzerCancel();
       state = 7;
       selection = 0;
       btn1Holding = false;
@@ -156,6 +190,7 @@ void loop() {
   // Normal button handling
   if ((btn1 || btn2 || btn3) && (millis() - lastButtonPress > debounceDelay)) {
     lastButtonPress = millis();
+    buzzerBeep();
     
     switch(state) {
       case 0: // Welcome
@@ -328,6 +363,7 @@ void handleCountdown() {
       motorDirection = true;
       lastMotorMove = millis();
       
+      buzzerStart();
       state = 6;
       lcd.clear();
       lcd.setCursor(0, 0);
@@ -361,6 +397,7 @@ void updateTherapyTimer() {
     }
     
     digitalWrite(RELAY_PIN, LOW);
+    buzzerFinish();
     state = 8;
     finishScreenActive = true;
     finishScreenStart = millis();
