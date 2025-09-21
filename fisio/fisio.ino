@@ -1,5 +1,12 @@
 #include <LiquidCrystal_I2C.h>
 #include <AccelStepper.h>
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h>
+
+// Blynk credentials
+char auth[] = "YOUR_BLYNK_AUTH_TOKEN";
+char ssid[] = "YOUR_WIFI_SSID";
+char pass[] = "YOUR_WIFI_PASSWORD";
 
 // LCD I2C (address 0x27, 16x2)
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -41,6 +48,13 @@ int selection = 0;
 unsigned long startTime = 0;
 unsigned long therapyTime = 0;
 bool therapyActive = false;
+bool remoteTherapyActive = false;
+
+// Blynk virtual pin values
+int blynkMode = 0;
+int blynkHeatLevel = 0;
+int blynkAngle = 0;
+int blynkDuration = 0;
 
 // Motor variables
 int startPosition = 80;
@@ -57,6 +71,10 @@ bool countdownActive = false;
 // LCD update variables
 unsigned long lastLCDUpdate = 0;
 const unsigned long lcdUpdateInterval = 1000;
+
+// Blynk update variables
+unsigned long lastBlynkUpdate = 0;
+const unsigned long blynkUpdateInterval = 15000; // 15 seconds
 
 // Screen variables
 unsigned long finishScreenStart = 0;
@@ -132,6 +150,75 @@ void activateTherapyRelay() {
   }
 }
 
+// Blynk Virtual Pin handlers
+BLYNK_WRITE(V1) {
+  blynkMode = param.asInt();
+}
+
+BLYNK_WRITE(V2) {
+  blynkHeatLevel = param.asInt();
+}
+
+BLYNK_WRITE(V3) {
+  blynkAngle = param.asInt();
+}
+
+BLYNK_WRITE(V4) {
+  blynkDuration = param.asInt();
+}
+
+BLYNK_WRITE(V5) {
+  int startTherapy = param.asInt();
+  if (startTherapy == 1 && !therapyActive && state == 0) {
+    // Use stored Blynk values
+    mode = blynkMode;
+    heatLevel = blynkHeatLevel;
+    angle = blynkAngle;
+    duration = blynkDuration;
+    targetAngle = (angle == 0) ? 40 : (angle == 1) ? 50 : 60;
+    
+    // Start remote therapy with countdown
+    remoteTherapyActive = true;
+    state = 5;
+    startCountdown();
+  } else if (startTherapy == 0 && therapyActive) {
+    // Stop therapy
+    stopTherapy();
+  }
+}
+
+
+
+void stopTherapy() {
+  therapyActive = false;
+  remoteTherapyActive = false;
+  
+  stepper.setMaxSpeed(MAX_SPEED);
+  gotoAngle(startPosition);
+  
+  // Wait for motor to reach start position
+  while(stepper.distanceToGo() != 0) {
+    stepper.run();
+  }
+  
+  digitalWrite(RELAY_PIN, LOW);
+  turnOffAllTherapyRelays();
+  stepper.disableOutputs();
+  
+  buzzerCancel();
+  Blynk.virtualWrite(V5, 0); // Reset start button
+  Blynk.virtualWrite(V6, "00:00"); // Reset timer
+  Blynk.logEvent("therapy_stopped", "Terapi dihentikan!");
+  
+  // Return to welcome screen
+  state = 0;
+  lcd.clear();
+  lcd.setCursor(2, 0);
+  lcd.print("FISIOTERAPI");
+  lcd.setCursor(1, 1);
+  lcd.print("Tekan tombol...");
+}
+
 void setup() {
   Serial.begin(9600);
   lcd.init();
@@ -156,6 +243,9 @@ void setup() {
   pinMode(RELAY_COLD, OUTPUT);
   turnOffAllTherapyRelays();
   
+  // WiFi and Blynk setup
+  Blynk.begin(auth, ssid, pass);
+  
   // Move motor to start position on startup with slow smooth movement
   digitalWrite(RELAY_PIN, HIGH);
   stepper.enableOutputs();
@@ -166,7 +256,6 @@ void setup() {
   // Wait for motor to reach start position before showing welcome
   while(stepper.distanceToGo() != 0) {
     stepper.run();
-    delay(1);
   }
   
   // Reset to normal speed after reaching start position
@@ -181,6 +270,8 @@ void setup() {
 }
 
 void loop() {
+  Blynk.run();
+  
   bool btn1 = !digitalRead(BTN1);
   bool btn2 = !digitalRead(BTN2);
   bool btn3 = !digitalRead(BTN3);
@@ -193,17 +284,40 @@ void loop() {
     }
     else if (millis() - btn1HoldStart >= longPressDelay) {
       if (state == 6 && therapyActive) {
-        therapyActive = false;
-        stepper.setMaxSpeed(MAX_SPEED);
-        gotoAngle(startPosition);
-        
-        // Wait for motor to reach start position
-        while(stepper.distanceToGo() != 0) {
-          stepper.run();
+        if (remoteTherapyActive) {
+          // Stop remote therapy via button
+          therapyActive = false;
+          remoteTherapyActive = false;
+          
+          stepper.setMaxSpeed(MAX_SPEED);
+          gotoAngle(startPosition);
+          
+          // Wait for motor to reach start position
+          while(stepper.distanceToGo() != 0) {
+            stepper.run();
+          }
+          
+          digitalWrite(RELAY_PIN, LOW);
+          turnOffAllTherapyRelays();
+          stepper.disableOutputs();
+          
+          // Update Blynk and send notification
+          Blynk.virtualWrite(V5, 0); // Reset start button
+          Blynk.virtualWrite(V6, "00:00"); // Reset timer
+          Blynk.logEvent("therapy_stopped", "Terapi dihentikan melalui tombol fisik!");
+        } else {
+          therapyActive = false;
+          stepper.setMaxSpeed(MAX_SPEED);
+          gotoAngle(startPosition);
+          
+          // Wait for motor to reach start position
+          while(stepper.distanceToGo() != 0) {
+            stepper.run();
+          }
+          
+          digitalWrite(RELAY_PIN, LOW);
+          turnOffAllTherapyRelays();
         }
-        
-        digitalWrite(RELAY_PIN, LOW);
-        turnOffAllTherapyRelays();
       }
       buzzerCancel();
       state = 7;
@@ -223,8 +337,8 @@ void loop() {
     btn1Holding = false;
   }
   
-  // Normal button handling
-  if ((btn1 || btn2 || btn3) && (millis() - lastButtonPress > debounceDelay)) {
+  // Normal button handling (only if not remote therapy)
+  if (!remoteTherapyActive && (btn1 || btn2 || btn3) && (millis() - lastButtonPress > debounceDelay)) {
     lastButtonPress = millis();
     buzzerBeep();
     
@@ -322,6 +436,12 @@ void loop() {
   if (state == 6 && therapyActive) {
     updateTherapyTimer();
     controlMotor();
+    
+    // Update Blynk timer every 15 seconds
+    if (remoteTherapyActive && millis() - lastBlynkUpdate >= blynkUpdateInterval) {
+      updateBlynkTimer();
+      lastBlynkUpdate = millis();
+    }
   }
   
   if (state == 8 && finishScreenActive) {
@@ -332,6 +452,27 @@ void loop() {
     handleCancelScreen();
   }
 }
+
+void updateBlynkTimer() {
+  unsigned long elapsed = millis() - startTime;
+  unsigned long remaining = therapyTime - elapsed;
+  
+  if (remaining > 0) {
+    int minutes = remaining / 60000;
+    int seconds = (remaining % 60000) / 1000;
+    
+    String timeStr = "";
+    if (minutes < 10) timeStr += "0";
+    timeStr += String(minutes);
+    timeStr += ":";
+    if (seconds < 10) timeStr += "0";
+    timeStr += String(seconds);
+    
+    Blynk.virtualWrite(V6, timeStr);
+  }
+}
+
+
 
 void showModeSelection() {
   lcd.clear();
@@ -375,7 +516,7 @@ void startCountdown() {
   digitalWrite(RELAY_PIN, HIGH);
   stepper.enableOutputs();
   gotoAngle(startPosition);
-  activateTherapyRelay(); // Activate appropriate therapy relay
+  activateTherapyRelay();
   
   countdownValue = 3;
   countdownStart = millis();
@@ -400,23 +541,55 @@ void handleCountdown() {
       motorDirection = true;
       lastMotorMove = millis();
       
+      // Update Blynk timer saat mulai terapi
+      if (remoteTherapyActive) {
+        int minutes = therapyTime / 60000;
+        int seconds = (therapyTime % 60000) / 1000;
+        String timeStr = "";
+        if (minutes < 10) timeStr += "0";
+        timeStr += String(minutes);
+        timeStr += ":";
+        if (seconds < 10) timeStr += "0";
+        timeStr += String(seconds);
+        Blynk.virtualWrite(V6, timeStr);
+        lastBlynkUpdate = millis();
+      }
+      
       buzzerStart();
       state = 6;
       lcd.clear();
       lcd.setCursor(2, 0);
-      if (mode == 0) {
-        lcd.print("Hangat ");
-        lcd.print((heatLevel == 0) ? "T" : (heatLevel == 1) ? "S" : "R");
-        lcd.print(" ");
-        lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
+      if (remoteTherapyActive) {
+        lcd.print("Remote ");
+        if (mode == 0) {
+          lcd.print((heatLevel == 0) ? "T" : (heatLevel == 1) ? "S" : "R");
+          lcd.print(" ");
+          lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
+        } else {
+          lcd.print("Dingin ");
+          lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
+        }
       } else {
-        lcd.print("Dingin ");
-        lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
+        if (mode == 0) {
+          lcd.print("Hangat ");
+          lcd.print((heatLevel == 0) ? "T" : (heatLevel == 1) ? "S" : "R");
+          lcd.print(" ");
+          lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
+        } else {
+          lcd.print("Dingin ");
+          lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
+        }
       }
     } else {
       countdownStart = millis();
       lcd.setCursor(6, 1);
       lcd.print(countdownValue);
+      
+      // Update Blynk countdown
+      if (remoteTherapyActive) {
+        String timeStr = "00:0" + String(countdownValue);
+        Blynk.virtualWrite(V6, timeStr);
+      }
     }
   }
 }
@@ -438,6 +611,15 @@ void updateTherapyTimer() {
     digitalWrite(RELAY_PIN, LOW);
     turnOffAllTherapyRelays();
     buzzerFinish();
+    
+    // Send Blynk notification if remote therapy
+    if (remoteTherapyActive) {
+      Blynk.logEvent("therapy_finished", "Terapi fisioterapi telah selesai!");
+      Blynk.virtualWrite(V5, 0);
+      Blynk.virtualWrite(V6, "00:00");
+      remoteTherapyActive = false;
+    }
+    
     state = 8;
     finishScreenActive = true;
     finishScreenStart = millis();
@@ -454,7 +636,7 @@ void updateTherapyTimer() {
     int seconds = (remaining % 60000) / 1000;
     
     lcd.setCursor(0, 1);
-    lcd.print("                "); // Clear line
+    lcd.print("                ");
     lcd.setCursor(3, 1);
     lcd.print("Sisa ");
     if (minutes < 10) lcd.print("0");
