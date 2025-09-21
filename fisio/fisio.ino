@@ -5,28 +5,29 @@
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // Button pins
-#define BTN1 6
-#define BTN2 7
-#define BTN3 8
+#define BTN1 34
+#define BTN2 35
+#define BTN3 32
 
 // Stepper motor pins
-#define PUL_PIN 2   // STEP/PUL
-#define DIR_PIN 3   // DIR
-#define ENA_PIN 4   // ENA (aktif-LOW pada DM542)
-#define RELAY_PIN 10
+#define PUL_PIN 12   // STEP/PUL
+#define DIR_PIN 14   // DIR
+#define ENA_PIN 13   // ENA
+#define RELAY_PIN 27
 
 // Stepper motor setup
 AccelStepper stepper(AccelStepper::DRIVER, PUL_PIN, DIR_PIN);
 const long STEPS_PER_REV = 6400;
 const float MAX_SPEED = 1200.0;
 const float THERAPY_SPEED = 2400.0;
-const float STARTUP_SPEED = 300.0;  // Quarter speed for startup
+const float STARTUP_SPEED = 300.0;
 const float ACCEL = 1200.0;
-const float STARTUP_ACCEL = 200.0;  // Very smooth acceleration for startup
+const float STARTUP_ACCEL = 200.0;
 
 // Variables
 int state = 0;
 int mode = 0; // 0=panas, 1=dingin
+int heatLevel = 0; // 0=HIGH, 1=MEDIUM, 2=LOW (only for panas mode)
 int angle = 0; // 0=40°, 1=50°, 2=60°
 int duration = 0; // 0=5min, 1=10min, 2=15min
 int selection = 0;
@@ -90,10 +91,10 @@ void setup() {
   digitalWrite(RELAY_PIN, LOW);
   
   // Move motor to start position on startup with slow smooth movement
-  digitalWrite(RELAY_PIN, HIGH); // Activate relay for motor power
+  digitalWrite(RELAY_PIN, HIGH);
   stepper.enableOutputs();
-  stepper.setMaxSpeed(STARTUP_SPEED);     // Set slower speed for startup
-  stepper.setAcceleration(STARTUP_ACCEL); // Set smoother acceleration
+  stepper.setMaxSpeed(STARTUP_SPEED);
+  stepper.setAcceleration(STARTUP_ACCEL);
   gotoAngle(startPosition);
   
   // Wait for motor to reach start position before showing welcome
@@ -119,13 +120,13 @@ void loop() {
   bool btn3 = !digitalRead(BTN3);
   
   // Handle BTN1 long press for cancel
-  if (btn1 && ((state >= 1 && state <= 3) || (state == 5 && therapyActive))) {
+  if (btn1 && ((state >= 1 && state <= 4) || (state == 6 && therapyActive))) {
     if (!btn1Holding) {
       btn1HoldStart = millis();
       btn1Holding = true;
     }
     else if (millis() - btn1HoldStart >= longPressDelay) {
-      if (state == 5 && therapyActive) {
+      if (state == 6 && therapyActive) {
         therapyActive = false;
         stepper.setMaxSpeed(MAX_SPEED);
         gotoAngle(startPosition);
@@ -137,7 +138,7 @@ void loop() {
         
         digitalWrite(RELAY_PIN, LOW);
       }
-      state = 6;
+      state = 7;
       selection = 0;
       btn1Holding = false;
       cancelScreenActive = true;
@@ -176,13 +177,36 @@ void loop() {
         }
         else if (btn1) {
           mode = selection;
-          state = 2;
+          if (mode == 0) { // Panas mode - go to heat level selection
+            state = 2;
+            selection = 0;
+            showHeatLevelSelection();
+          } else { // Dingin mode - skip heat level, go to angle
+            state = 3;
+            selection = 0;
+            showAngleSelection();
+          }
+        }
+        break;
+        
+      case 2: // Heat level selection (only for panas mode)
+        if (btn2 && selection > 0) {
+          selection--;
+          showHeatLevelSelection();
+        }
+        else if (btn3 && selection < 2) {
+          selection++;
+          showHeatLevelSelection();
+        }
+        else if (btn1) {
+          heatLevel = selection;
+          state = 3;
           selection = 0;
           showAngleSelection();
         }
         break;
         
-      case 2: // Angle selection
+      case 3: // Angle selection
         if (btn2 && selection > 0) {
           selection--;
           showAngleSelection();
@@ -193,13 +217,13 @@ void loop() {
         }
         else if (btn1) {
           angle = selection;
-          state = 3;
+          state = 4;
           selection = 0;
           showDurationSelection();
         }
         break;
         
-      case 3: // Duration selection
+      case 4: // Duration selection
         if (btn2 && selection > 0) {
           selection--;
           showDurationSelection();
@@ -211,7 +235,7 @@ void loop() {
         else if (btn1) {
           duration = selection;
           targetAngle = (angle == 0) ? 40 : (angle == 1) ? 50 : 60;
-          state = 4;
+          state = 5;
           startCountdown();
         }
         break;
@@ -220,20 +244,20 @@ void loop() {
   
   stepper.run();
   
-  if (state == 4 && countdownActive) {
+  if (state == 5 && countdownActive) {
     handleCountdown();
   }
   
-  if (state == 5 && therapyActive) {
+  if (state == 6 && therapyActive) {
     updateTherapyTimer();
     controlMotor();
   }
   
-  if (state == 7 && finishScreenActive) {
+  if (state == 8 && finishScreenActive) {
     handleFinishScreen();
   }
   
-  if (state == 6 && cancelScreenActive) {
+  if (state == 7 && cancelScreenActive) {
     handleCancelScreen();
   }
 }
@@ -244,6 +268,16 @@ void showModeSelection() {
   lcd.print("Mode Terapi:");
   lcd.setCursor(5, 1);
   lcd.print(selection == 0 ? "PANAS" : "DINGIN");
+}
+
+void showHeatLevelSelection() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Level Panas:");
+  lcd.setCursor(6, 1);
+  if (selection == 0) lcd.print("HIGH");
+  else if (selection == 1) lcd.print("MEDIUM");
+  else lcd.print("LOW");
 }
 
 void showAngleSelection() {
@@ -294,10 +328,15 @@ void handleCountdown() {
       motorDirection = true;
       lastMotorMove = millis();
       
-      state = 5;
+      state = 6;
       lcd.clear();
       lcd.setCursor(0, 0);
-      lcd.print((mode == 0) ? "Panas " : "Dingin ");
+      if (mode == 0) {
+        lcd.print("Panas ");
+        lcd.print((heatLevel == 0) ? "H " : (heatLevel == 1) ? "M " : "L ");
+      } else {
+        lcd.print("Dingin ");
+      }
       lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
     } else {
       countdownStart = millis();
@@ -322,7 +361,7 @@ void updateTherapyTimer() {
     }
     
     digitalWrite(RELAY_PIN, LOW);
-    state = 7;
+    state = 8;
     finishScreenActive = true;
     finishScreenStart = millis();
     lcd.clear();
