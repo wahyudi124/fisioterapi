@@ -351,11 +351,9 @@ void handleCancelScreen() {
 void controlMotor() {
   if (millis() - lastMotorMove >= motorDelay && stepper.distanceToGo() == 0) {
     if (motorDirection) {
-      // Move to target angle
       gotoAngle(targetAngle);
       motorDirection = false;
     } else {
-      // Return to start position
       gotoAngle(startPosition);
       motorDirection = true;
     }
@@ -371,7 +369,6 @@ void handleCountdown() {
       lcd.print(countdownValue);
       countdownStart = millis();
     } else {
-      // Start therapy
       countdownActive = false;
       therapyActive = true;
       state = 5;
@@ -381,7 +378,6 @@ void handleCountdown() {
       motorDirection = true;
       therapyTime = (duration == 0) ? 300000 : (duration == 1) ? 600000 : 900000;
       
-      // Set faster speed for therapy
       stepper.setMaxSpeed(THERAPY_SPEED);
       
       lcd.clear();
