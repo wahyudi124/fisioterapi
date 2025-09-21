@@ -62,7 +62,9 @@ inline long degToSteps(float deg) {
 }
 
 void gotoAngle(float deg) {
-  stepper.moveTo(degToSteps(deg));
+  // Quadrant 1 reverse angle: 90° - input_angle
+  float actualAngle = 90.0 - deg;
+  stepper.moveTo(degToSteps(actualAngle));
 }
 
 // Button variables
@@ -386,4 +388,3 @@ void handleCountdown() {
     }
   }
 }
-
