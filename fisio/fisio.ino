@@ -1,4 +1,5 @@
 #include <LiquidCrystal_I2C.h>
+#include <AccelStepper.h>
 
 // LCD I2C (address 0x27, 16x2)
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -7,6 +8,18 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define BTN1 6
 #define BTN2 7
 #define BTN3 8
+
+// Stepper motor pins
+#define PUL_PIN 2   // STEP/PUL
+#define DIR_PIN 3   // DIR
+#define ENA_PIN 4   // ENA (aktif-LOW pada DM542)
+#define RELAY_PIN 10
+
+// Stepper motor setup
+AccelStepper stepper(AccelStepper::DRIVER, PUL_PIN, DIR_PIN);
+const long STEPS_PER_REV = 6400;
+const float MAX_SPEED = 1200.0;
+const float ACCEL = 1200.0;
 
 // Variables
 int state = 0;
@@ -17,6 +30,35 @@ int selection = 0; // current selection index
 unsigned long startTime = 0;
 unsigned long therapyTime = 0;
 bool therapyActive = false;
+
+// Motor variables
+int startPosition = 80; // Start position
+int targetAngle = 40; // Target angle based on user selection
+bool motorDirection = true; // true = going to target, false = returning to start
+unsigned long lastMotorMove = 0;
+const unsigned long motorDelay = 2000; // 2 seconds between movements
+
+// Countdown variables
+int countdownValue = 0;
+unsigned long countdownStart = 0;
+bool countdownActive = false;
+
+// Finish screen variables
+unsigned long finishScreenStart = 0;
+bool finishScreenActive = false;
+
+// Cancel screen variables
+unsigned long cancelScreenStart = 0;
+bool cancelScreenActive = false;
+
+// Stepper functions
+inline long degToSteps(float deg) {
+  return lroundf((deg / 360.0f) * STEPS_PER_REV);
+}
+
+void gotoAngle(float deg) {
+  stepper.moveTo(degToSteps(deg));
+}
 
 // Button variables
 unsigned long lastButtonPress = 0;
@@ -32,6 +74,14 @@ void setup() {
   pinMode(BTN1, INPUT_PULLUP);
   pinMode(BTN2, INPUT_PULLUP);
   pinMode(BTN3, INPUT_PULLUP);
+  
+  // Stepper and relay setup
+  stepper.setEnablePin(ENA_PIN);
+  stepper.setPinsInverted(false, false, true); // DM542 ENA aktif-LOW
+  stepper.setMaxSpeed(MAX_SPEED);
+  stepper.setAcceleration(ACCEL);
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW); // Relay off initially
   
   // Welcome screen
   lcd.setCursor(4, 0);
@@ -56,19 +106,17 @@ void loop() {
       // Long press - cancel
       if (state == 5 && therapyActive) {
         therapyActive = false;
+        digitalWrite(RELAY_PIN, LOW); // Turn off relay
+        stepper.disableOutputs(); // Disable stepper
       }
-      state = 0;
+      state = 6; // Cancel screen state
       selection = 0;
       btn1Holding = false;
+      cancelScreenActive = true;
+      cancelScreenStart = millis();
       lcd.clear();
       lcd.setCursor(3, 0);
       lcd.print("CANCELLED");
-      delay(1500);
-      lcd.clear();
-      lcd.setCursor(4, 0);
-      lcd.print("WELCOME");
-      lcd.setCursor(2, 1);
-      lcd.print("Press any key");
       return;
     }
   }
@@ -139,16 +187,37 @@ void loop() {
         }
         else if (btn1) {
           duration = selection;
-          state = 5;
+          // Set target angle based on user selection
+          targetAngle = (angle == 0) ? 40 : (angle == 1) ? 50 : 60;
+          state = 4; // Countdown state
           startCountdown();
         }
         break;
     }
   }
   
+  // Always run stepper motor
+  stepper.run();
+  
+  // Handle countdown
+  if (state == 4 && countdownActive) {
+    handleCountdown();
+  }
+  
   // Handle therapy countdown and timer
   if (state == 5 && therapyActive) {
     updateTherapyTimer();
+    controlMotor();
+  }
+  
+  // Handle finish screen
+  if (state == 7 && finishScreenActive) {
+    handleFinishScreen();
+  }
+  
+  // Handle cancel screen
+  if (state == 6 && cancelScreenActive) {
+    handleCancelScreen();
   }
 }
 
@@ -192,22 +261,20 @@ void showStartScreen() {
 }
 
 void startCountdown() {
-  for (int i = 3; i > 0; i--) {
-    lcd.clear();
-    lcd.setCursor(6, 0);
-    lcd.print("START");
-    lcd.setCursor(7, 1);
-    lcd.print(i);
-    delay(1000);
-  }
+  // Activate relay and enable stepper
+  digitalWrite(RELAY_PIN, HIGH); // Turn on relay
+  stepper.enableOutputs(); // Enable stepper
+  gotoAngle(startPosition); // Move to start position (80°)
   
-  therapyActive = true;
-  startTime = millis();
-  therapyTime = (duration == 0) ? 300000 : (duration == 1) ? 600000 : 900000; // 5, 10, 15 min in ms
+  countdownValue = 3;
+  countdownStart = millis();
+  countdownActive = true;
   
   lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("TERAPI AKTIF");
+  lcd.setCursor(6, 0);
+  lcd.print("START");
+  lcd.setCursor(7, 1);
+  lcd.print(countdownValue);
 }
 
 void updateTherapyTimer() {
@@ -217,14 +284,16 @@ void updateTherapyTimer() {
   if (remaining <= 0) {
     // Therapy finished
     therapyActive = false;
+    digitalWrite(RELAY_PIN, LOW); // Turn off relay
+    stepper.disableOutputs(); // Disable stepper
+    state = 7; // Finish screen state
+    finishScreenActive = true;
+    finishScreenStart = millis();
     lcd.clear();
     lcd.setCursor(3, 0);
     lcd.print("SELESAI");
     lcd.setCursor(1, 1);
     lcd.print("Terapi Selesai");
-    delay(3000);
-    state = 0;
-    setup();
     return;
   }
   
@@ -242,4 +311,66 @@ void updateTherapyTimer() {
   lcd.print(" 1:STOP");
 }
 
+void controlMotor() {
+  if (millis() - lastMotorMove >= motorDelay && stepper.distanceToGo() == 0) {
+    if (motorDirection) {
+      // Move to target angle
+      gotoAngle(targetAngle);
+      motorDirection = false;
+    } else {
+      // Return to start position
+      gotoAngle(startPosition);
+      motorDirection = true;
+    }
+    lastMotorMove = millis();
+  }
+}
+
+void handleCountdown() {
+  if (millis() - countdownStart >= 1000) {
+    countdownValue--;
+    if (countdownValue > 0) {
+      lcd.setCursor(7, 1);
+      lcd.print(countdownValue);
+      countdownStart = millis();
+    } else {
+      // Start therapy
+      countdownActive = false;
+      therapyActive = true;
+      state = 5;
+      startTime = millis();
+      lastMotorMove = millis();
+      motorDirection = true;
+      therapyTime = (duration == 0) ? 300000 : (duration == 1) ? 600000 : 900000;
+      
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("TERAPI AKTIF");
+    }
+  }
+}
+
+void handleFinishScreen() {
+  if (millis() - finishScreenStart >= 3000) {
+    finishScreenActive = false;
+    state = 0;
+    lcd.clear();
+    lcd.setCursor(4, 0);
+    lcd.print("WELCOME");
+    lcd.setCursor(2, 1);
+    lcd.print("Press any key");
+  }
+}
+
+void handleCancelScreen() {
+  if (millis() - cancelScreenStart >= 1500) {
+    cancelScreenActive = false;
+    state = 0;
+    lcd.clear();
+    lcd.setCursor(4, 0);
+    lcd.print("WELCOME");
+    lcd.setCursor(2, 1);
+    lcd.print("Press any key");
+  }
+}
 
