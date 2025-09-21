@@ -16,6 +16,12 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define RELAY_PIN 27
 #define BUZZER_PIN 26
 
+// Therapy relay pins
+#define RELAY_HEAT_LOW 18
+#define RELAY_HEAT_MEDIUM 19
+#define RELAY_HEAT_HIGH 23
+#define RELAY_COLD 25
+
 // Stepper motor setup
 AccelStepper stepper(AccelStepper::DRIVER, PUL_PIN, DIR_PIN);
 const long STEPS_PER_REV = 6400;
@@ -106,6 +112,26 @@ void buzzerCancel() {
   digitalWrite(BUZZER_PIN, LOW);
 }
 
+// Therapy relay functions
+void turnOffAllTherapyRelays() {
+  digitalWrite(RELAY_HEAT_LOW, LOW);
+  digitalWrite(RELAY_HEAT_MEDIUM, LOW);
+  digitalWrite(RELAY_HEAT_HIGH, LOW);
+  digitalWrite(RELAY_COLD, LOW);
+}
+
+void activateTherapyRelay() {
+  turnOffAllTherapyRelays(); // Safety: turn off all first
+  
+  if (mode == 0) { // Panas mode
+    if (heatLevel == 0) digitalWrite(RELAY_HEAT_HIGH, HIGH);
+    else if (heatLevel == 1) digitalWrite(RELAY_HEAT_MEDIUM, HIGH);
+    else digitalWrite(RELAY_HEAT_LOW, HIGH);
+  } else { // Dingin mode
+    digitalWrite(RELAY_COLD, HIGH);
+  }
+}
+
 void setup() {
   Serial.begin(9600);
   lcd.init();
@@ -122,6 +148,13 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, LOW);
   pinMode(BUZZER_PIN, OUTPUT);
+  
+  // Therapy relay setup
+  pinMode(RELAY_HEAT_LOW, OUTPUT);
+  pinMode(RELAY_HEAT_MEDIUM, OUTPUT);
+  pinMode(RELAY_HEAT_HIGH, OUTPUT);
+  pinMode(RELAY_COLD, OUTPUT);
+  turnOffAllTherapyRelays();
   
   // Move motor to start position on startup with slow smooth movement
   digitalWrite(RELAY_PIN, HIGH);
@@ -170,6 +203,7 @@ void loop() {
         }
         
         digitalWrite(RELAY_PIN, LOW);
+        turnOffAllTherapyRelays();
       }
       buzzerCancel();
       state = 7;
@@ -339,6 +373,7 @@ void startCountdown() {
   digitalWrite(RELAY_PIN, HIGH);
   stepper.enableOutputs();
   gotoAngle(startPosition);
+  activateTherapyRelay(); // Activate appropriate therapy relay
   
   countdownValue = 3;
   countdownStart = millis();
@@ -397,6 +432,7 @@ void updateTherapyTimer() {
     }
     
     digitalWrite(RELAY_PIN, LOW);
+    turnOffAllTherapyRelays();
     buzzerFinish();
     state = 8;
     finishScreenActive = true;
