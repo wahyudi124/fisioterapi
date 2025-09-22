@@ -2,11 +2,10 @@
 #include <AccelStepper.h>
 #include <WiFi.h>
 #include <BlynkSimpleEsp32.h>
+#include <WiFiManager.h>
 
 // Blynk credentials
 char auth[] = "YOUR_BLYNK_AUTH_TOKEN";
-char ssid[] = "YOUR_WIFI_SSID";
-char pass[] = "YOUR_WIFI_PASSWORD";
 
 // LCD I2C (address 0x27, 16x2)
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -17,9 +16,9 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define BTN3 16
 
 // Stepper motor pins
-#define PUL_PIN 12   // STEP/PUL
-#define DIR_PIN 14   // DIR
-#define ENA_PIN 13   // ENA
+#define PUL_PIN 13   // STEP/PUL
+#define DIR_PIN 12   // DIR
+#define ENA_PIN 14   // ENA
 #define RELAY_PIN 26
 #define BUZZER_PIN 4
 
@@ -242,8 +241,38 @@ void setup() {
   
   
   
-  // WiFi and Blynk setup
-  Blynk.begin(auth, ssid, pass);
+  // WiFi Manager setup
+  WiFiManager wm;
+  
+  // Show WiFi status on LCD
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("WiFi Setup...");
+  
+  // Set AP name for configuration
+  bool res = wm.autoConnect("FISIOTERAPI-SETUP");
+  
+  if (!res) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("WiFi Failed!");
+    lcd.setCursor(0, 1);
+    lcd.print("Restarting...");
+    delay(3000);
+    ESP.restart();
+  }
+  
+  // WiFi connected, start Blynk
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("WiFi Connected");
+  lcd.setCursor(0, 1);
+  lcd.print("Starting Blynk");
+  delay(1000);
+  lcd.clear();
+  
+  Blynk.config(auth);
+  Blynk.connect();
   
   // Move motor to start position on startup with slow smooth movement
   digitalWrite(RELAY_PIN, HIGH);
@@ -262,6 +291,8 @@ void setup() {
   stepper.setAcceleration(ACCEL);
   
   // Welcome screen
+  delay(1000);
+  digitalWrite(RELAY_PIN, LOW);
   lcd.setCursor(2, 0);
   lcd.print("FISIOTERAPI");
   lcd.setCursor(1, 1);
