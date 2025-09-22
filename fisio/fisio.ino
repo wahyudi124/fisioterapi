@@ -150,6 +150,17 @@ void activateTherapyRelay() {
   }
 }
 
+// Blynk connection callback
+BLYNK_CONNECTED() {
+  // Sync all V1-V5 values to Blynk
+  Blynk.virtualWrite(V1, mode);
+  Blynk.virtualWrite(V2, heatLevel);
+  Blynk.virtualWrite(V3, angle);
+  Blynk.virtualWrite(V4, duration);
+  Blynk.virtualWrite(V5, 0);
+  Blynk.virtualWrite(V6, "DEVICE READY");
+}
+
 // Blynk Virtual Pin handlers
 BLYNK_WRITE(V1) {
   blynkMode = param.asInt();
@@ -207,7 +218,7 @@ void stopTherapy() {
   
   buzzerCancel();
   Blynk.virtualWrite(V5, 0); // Reset start button
-  Blynk.virtualWrite(V6, "00:00"); // Reset timer
+  Blynk.virtualWrite(V6, "DEVICE READY"); // Reset to ready
   Blynk.logEvent("therapy_stopped", "Terapi dihentikan!");
   
   // Return to welcome screen
@@ -304,7 +315,7 @@ void loop() {
           
           // Update Blynk and send notification
           Blynk.virtualWrite(V5, 0); // Reset start button
-          Blynk.virtualWrite(V6, "00:00"); // Reset timer
+          Blynk.virtualWrite(V6, "DEVICE READY"); // Reset to ready
           Blynk.logEvent("therapy_stopped", "Terapi dihentikan melalui tombol fisik!");
         } else {
           therapyActive = false;
