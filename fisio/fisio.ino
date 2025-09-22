@@ -99,34 +99,28 @@ void gotoAngle(float deg) {
   stepper.moveTo(degToSteps(actualAngle));
 }
 
-// Buzzer functions
+// Non-blocking buzzer functions
 void buzzerBeep() {
   digitalWrite(BUZZER_PIN, HIGH);
-  delay(50);
+  delayMicroseconds(50000);
   digitalWrite(BUZZER_PIN, LOW);
 }
 
 void buzzerStart() {
-  for(int i = 0; i < 2; i++) {
-    digitalWrite(BUZZER_PIN, HIGH);
-    delay(100);
-    digitalWrite(BUZZER_PIN, LOW);
-    delay(100);
-  }
+  digitalWrite(BUZZER_PIN, HIGH);
+  delayMicroseconds(100000);
+  digitalWrite(BUZZER_PIN, LOW);
 }
 
 void buzzerFinish() {
-  for(int i = 0; i < 3; i++) {
-    digitalWrite(BUZZER_PIN, HIGH);
-    delay(200);
-    digitalWrite(BUZZER_PIN, LOW);
-    delay(100);
-  }
+  digitalWrite(BUZZER_PIN, HIGH);
+  delayMicroseconds(200000);
+  digitalWrite(BUZZER_PIN, LOW);
 }
 
 void buzzerCancel() {
   digitalWrite(BUZZER_PIN, HIGH);
-  delay(300);
+  delayMicroseconds(100000);
   digitalWrite(BUZZER_PIN, LOW);
 }
 
@@ -207,21 +201,14 @@ void stopTherapy() {
   stepper.setMaxSpeed(MAX_SPEED);
   gotoAngle(startPosition);
   
-  // Wait for motor to reach start position
-  while(stepper.distanceToGo() != 0) {
-    stepper.run();
-  }
-  
   digitalWrite(RELAY_PIN, LOW);
   turnOffAllTherapyRelays();
-  stepper.disableOutputs();
   
   buzzerCancel();
-  Blynk.virtualWrite(V5, 0); // Reset start button
-  Blynk.virtualWrite(V6, "DEVICE READY"); // Reset to ready
+  Blynk.virtualWrite(V5, 0);
+  Blynk.virtualWrite(V6, "DEVICE READY");
   Blynk.logEvent("therapy_stopped", "Terapi dihentikan!");
   
-  // Return to welcome screen
   state = 0;
   lcd.clear();
   lcd.setCursor(2, 0);
@@ -282,6 +269,7 @@ void setup() {
 }
 
 void loop() {
+  stepper.run(); // PRIORITY: Always run motor first
   Blynk.run();
   
   bool btn1 = !digitalRead(BTN1);
@@ -329,6 +317,11 @@ void loop() {
           
           digitalWrite(RELAY_PIN, LOW);
           turnOffAllTherapyRelays();
+          
+          // Update Blynk for manual therapy stop
+          Blynk.virtualWrite(V5, 0);
+          Blynk.virtualWrite(V6, "DEVICE READY");
+          Blynk.logEvent("therapy_stopped", "Terapi dihentikan melalui tombol fisik!");
         }
       }
       buzzerCancel();
@@ -432,6 +425,14 @@ void loop() {
         else if (btn1) {
           duration = selection;
           targetAngle = (angle == 0) ? 40 : (angle == 1) ? 50 : 60;
+          
+          // Sync manual control values to Blynk
+          Blynk.virtualWrite(V1, mode);
+          Blynk.virtualWrite(V2, heatLevel);
+          Blynk.virtualWrite(V3, angle);
+          Blynk.virtualWrite(V4, duration);
+          Blynk.virtualWrite(V5, 1); // Show therapy active
+          
           state = 5;
           startCountdown();
         }
@@ -449,8 +450,8 @@ void loop() {
     updateTherapyTimer();
     controlMotor();
     
-    // Update Blynk timer every 15 seconds
-    if (remoteTherapyActive && millis() - lastBlynkUpdate >= blynkUpdateInterval) {
+    // Update Blynk timer every 15 seconds (semua terapi)
+    if (millis() - lastBlynkUpdate >= blynkUpdateInterval) {
       updateBlynkTimer();
       lastBlynkUpdate = millis();
     }
@@ -553,19 +554,17 @@ void handleCountdown() {
       motorDirection = true;
       lastMotorMove = millis();
       
-      // Update Blynk timer saat mulai terapi
-      if (remoteTherapyActive) {
-        int minutes = therapyTime / 60000;
-        int seconds = (therapyTime % 60000) / 1000;
-        String timeStr = "";
-        if (minutes < 10) timeStr += "0";
-        timeStr += String(minutes);
-        timeStr += ":";
-        if (seconds < 10) timeStr += "0";
-        timeStr += String(seconds);
-        Blynk.virtualWrite(V6, timeStr);
-        lastBlynkUpdate = millis();
-      }
+      // Update Blynk timer saat mulai terapi (semua terapi)
+      int minutes = therapyTime / 60000;
+      int seconds = (therapyTime % 60000) / 1000;
+      String timeStr = "";
+      if (minutes < 10) timeStr += "0";
+      timeStr += String(minutes);
+      timeStr += ":";
+      if (seconds < 10) timeStr += "0";
+      timeStr += String(seconds);
+      Blynk.virtualWrite(V6, timeStr);
+      lastBlynkUpdate = millis();
       
       buzzerStart();
       state = 6;
@@ -597,11 +596,9 @@ void handleCountdown() {
       lcd.setCursor(6, 1);
       lcd.print(countdownValue);
       
-      // Update Blynk countdown
-      if (remoteTherapyActive) {
-        String timeStr = "00:0" + String(countdownValue);
-        Blynk.virtualWrite(V6, timeStr);
-      }
+      // Update Blynk countdown (semua terapi)
+      String timeStr = "00:0" + String(countdownValue);
+      Blynk.virtualWrite(V6, timeStr);
     }
   }
 }
@@ -624,13 +621,11 @@ void updateTherapyTimer() {
     turnOffAllTherapyRelays();
     buzzerFinish();
     
-    // Send Blynk notification if remote therapy
-    if (remoteTherapyActive) {
-      Blynk.logEvent("therapy_finished", "Terapi fisioterapi telah selesai!");
-      Blynk.virtualWrite(V5, 0);
-      Blynk.virtualWrite(V6, "00:00");
-      remoteTherapyActive = false;
-    }
+    // Send Blynk notification and update for all therapy
+    Blynk.logEvent("therapy_finish", "Terapi fisioterapi telah selesai!");
+    Blynk.virtualWrite(V5, 0);
+    Blynk.virtualWrite(V6, "DEVICE READY");
+    remoteTherapyActive = false;
     
     state = 8;
     finishScreenActive = true;
