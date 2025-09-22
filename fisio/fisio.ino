@@ -12,22 +12,22 @@ char pass[] = "YOUR_WIFI_PASSWORD";
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // Button pins
-#define BTN1 34
-#define BTN2 35
-#define BTN3 32
+#define BTN1 18
+#define BTN2 17
+#define BTN3 16
 
 // Stepper motor pins
 #define PUL_PIN 12   // STEP/PUL
 #define DIR_PIN 14   // DIR
 #define ENA_PIN 13   // ENA
-#define RELAY_PIN 27
-#define BUZZER_PIN 26
+#define RELAY_PIN 26
+#define BUZZER_PIN 4
 
 // Therapy relay pins
-#define RELAY_HEAT_LOW 18
-#define RELAY_HEAT_MEDIUM 19
-#define RELAY_HEAT_HIGH 23
-#define RELAY_COLD 25
+#define RELAY_HEAT_LOW 25
+#define RELAY_HEAT_MEDIUM 23
+#define RELAY_HEAT_HIGH 19
+#define RELAY_COLD 27
 
 // Stepper motor setup
 AccelStepper stepper(AccelStepper::DRIVER, PUL_PIN, DIR_PIN);
@@ -132,21 +132,21 @@ void buzzerCancel() {
 
 // Therapy relay functions
 void turnOffAllTherapyRelays() {
-  digitalWrite(RELAY_HEAT_LOW, LOW);
-  digitalWrite(RELAY_HEAT_MEDIUM, LOW);
-  digitalWrite(RELAY_HEAT_HIGH, LOW);
-  digitalWrite(RELAY_COLD, LOW);
+  digitalWrite(RELAY_HEAT_LOW, HIGH);    // LOW trigger - HIGH = OFF
+  digitalWrite(RELAY_HEAT_MEDIUM, HIGH); // LOW trigger - HIGH = OFF
+  digitalWrite(RELAY_HEAT_HIGH, HIGH);   // LOW trigger - HIGH = OFF
+  digitalWrite(RELAY_COLD, LOW);         // HIGH trigger - LOW = OFF
 }
 
 void activateTherapyRelay() {
   turnOffAllTherapyRelays(); // Safety: turn off all first
   
   if (mode == 0) { // Hangat mode
-    if (heatLevel == 0) digitalWrite(RELAY_HEAT_HIGH, HIGH);
-    else if (heatLevel == 1) digitalWrite(RELAY_HEAT_MEDIUM, HIGH);
-    else digitalWrite(RELAY_HEAT_LOW, HIGH);
+    if (heatLevel == 0) digitalWrite(RELAY_HEAT_HIGH, LOW);      // LOW trigger - LOW = ON
+    else if (heatLevel == 1) digitalWrite(RELAY_HEAT_MEDIUM, LOW); // LOW trigger - LOW = ON
+    else digitalWrite(RELAY_HEAT_LOW, LOW);                      // LOW trigger - LOW = ON
   } else { // Dingin mode
-    digitalWrite(RELAY_COLD, HIGH);
+    digitalWrite(RELAY_COLD, HIGH);                              // HIGH trigger - HIGH = ON
   }
 }
 
@@ -221,6 +221,12 @@ void stopTherapy() {
 
 void setup() {
   Serial.begin(9600);
+  // Therapy relay setup (LOW trigger)
+  pinMode(RELAY_HEAT_LOW, OUTPUT);
+  pinMode(RELAY_HEAT_MEDIUM, OUTPUT);
+  pinMode(RELAY_HEAT_HIGH, OUTPUT);
+  pinMode(RELAY_COLD, OUTPUT);
+  turnOffAllTherapyRelays();
   lcd.init();
   lcd.backlight();
   pinMode(BTN1, INPUT_PULLUP);
@@ -236,12 +242,7 @@ void setup() {
   digitalWrite(RELAY_PIN, LOW);
   pinMode(BUZZER_PIN, OUTPUT);
   
-  // Therapy relay setup
-  pinMode(RELAY_HEAT_LOW, OUTPUT);
-  pinMode(RELAY_HEAT_MEDIUM, OUTPUT);
-  pinMode(RELAY_HEAT_HIGH, OUTPUT);
-  pinMode(RELAY_COLD, OUTPUT);
-  turnOffAllTherapyRelays();
+  
   
   // WiFi and Blynk setup
   Blynk.begin(auth, ssid, pass);
