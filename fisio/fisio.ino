@@ -510,8 +510,10 @@ void startTherapy() {
   buzzerStart();
   
   state = 6;
-  motorDirection = false;
-  gotoAngle(targetAngle);
+  // Ensure motor starts from 0 position
+  stepper.setCurrentPosition(degToSteps(startPosition));
+  motorDirection = true;  // Start by moving to target angle
+  gotoAngle(-targetAngle);  // Use negative angle for CCW movement
   
   Blynk.virtualWrite(V6, "TERAPI AKTIF");
   Blynk.logEvent("therapy_started", "Terapi dimulai!");
@@ -559,10 +561,10 @@ void controlMotor() {
     lastMotorMove = millis();
     
     if (motorDirection) {
-      gotoAngle(targetAngle); // Move to target angle (40°/50°/60°)
+      gotoAngle(startPosition);  // Move back to 0 degrees (vertical)
       motorDirection = false;
     } else {
-      gotoAngle(startPosition);  // Move back to 0 degrees (vertical)
+      gotoAngle(-targetAngle); // Move to negative target angle for CCW
       motorDirection = true;
     }
   }
