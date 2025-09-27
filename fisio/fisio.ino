@@ -510,7 +510,7 @@ void startTherapy() {
   buzzerStart();
   
   state = 6;
-  motorDirection = true;
+  motorDirection = false;
   gotoAngle(targetAngle);
   
   Blynk.virtualWrite(V6, "TERAPI AKTIF");
