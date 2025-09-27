@@ -221,7 +221,7 @@ void stopTherapy() {
 void setup() {
   Serial.begin(9600);
   // Dimmer and cold relay setup
-  dimmer.begin(NORMAL_MODE, OFF);
+  dimmer.begin(NORMAL_MODE, ON);
   pinMode(RELAY_COLD, OUTPUT);
   turnOffAllTherapy();
   lcd.init();
@@ -560,10 +560,10 @@ void controlMotor() {
     
     if (motorDirection) {
       gotoAngle(startPosition);  // Move back to 0 degrees (vertical)
-      motorDirection = false;
+      motorDirection = true;
     } else {
       gotoAngle(targetAngle); // Move to target angle (40°/50°/60°)
-      motorDirection = true;
+      motorDirection = false;
     }
   }
 }
