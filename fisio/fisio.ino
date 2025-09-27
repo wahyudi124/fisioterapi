@@ -62,9 +62,9 @@ int blynkAngle = 0;
 int blynkDuration = 0;
 
 // Motor variables
-int startPosition = 90;  // Vertical position
+int startPosition = 90;  // Vertical position (0 degrees)
 int targetAngle = 40;
-int upperLimit = 80;     // Upper limit for therapy movement
+int upperLimit = 10;     // Lower position (80 degrees down from start)
 bool motorDirection = true;  // true = to target angle, false = to upper limit
 unsigned long lastMotorMove = 0;
 const unsigned long motorDelay = 2000;
@@ -217,7 +217,7 @@ void stopTherapy() {
 void setup() {
   Serial.begin(9600);
   // Dimmer and cold relay setup
-  dimmer.begin(NORMAL_MODE, OFF);
+  dimmer.begin(NORMAL_MODE, ON);
   pinMode(RELAY_COLD, OUTPUT);
   turnOffAllTherapy();
   lcd.init();
@@ -569,10 +569,10 @@ void controlMotor() {
     lastMotorMove = millis();
     
     if (motorDirection) {
-      gotoAngle(upperLimit);
+      gotoAngle(upperLimit);  // Move to lower position (10°)
       motorDirection = false;
     } else {
-      gotoAngle(targetAngle);
+      gotoAngle(targetAngle); // Move back to target angle (40°/50°/60°)
       motorDirection = true;
     }
   }
