@@ -62,10 +62,9 @@ int blynkAngle = 0;
 int blynkDuration = 0;
 
 // Motor variables
-int startPosition = 90;  // Vertical position (0 degrees)
+int startPosition = 0;   // Vertical position (0 degrees)
 int targetAngle = 40;
-int upperLimit = 10;     // Lower position (80 degrees down from start)
-bool motorDirection = true;  // true = to target angle, false = to upper limit
+bool motorDirection = true;  // true = to target angle, false = back to 0
 unsigned long lastMotorMove = 0;
 const unsigned long motorDelay = 2000;
 
@@ -198,7 +197,12 @@ void stopTherapy() {
   stepper.setMaxSpeed(MAX_SPEED);
   gotoAngle(startPosition);
   
-  digitalWrite(RELAY_PIN, LOW);
+  // Wait for motor to reach start position
+  while(stepper.distanceToGo() != 0) {
+    stepper.run();
+  }
+  
+  stepper.disableOutputs();
   turnOffAllTherapy();
   
   buzzerCancel();
@@ -217,7 +221,7 @@ void stopTherapy() {
 void setup() {
   Serial.begin(9600);
   // Dimmer and cold relay setup
-  dimmer.begin(NORMAL_MODE, ON);
+  dimmer.begin(NORMAL_MODE, OFF);
   pinMode(RELAY_COLD, OUTPUT);
   turnOffAllTherapy();
   lcd.init();
@@ -232,7 +236,7 @@ void setup() {
   stepper.setMaxSpeed(MAX_SPEED);
   stepper.setAcceleration(ACCEL);
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, LOW);
+  digitalWrite(RELAY_PIN, HIGH);
   pinMode(BUZZER_PIN, OUTPUT);
   
   // WiFi Manager setup
@@ -268,25 +272,12 @@ void setup() {
   Blynk.config(auth);
   Blynk.connect();
   
-  // Move motor to start position on startup with slow smooth movement
-  digitalWrite(RELAY_PIN, HIGH);
-  stepper.enableOutputs();
-  stepper.setMaxSpeed(STARTUP_SPEED);
-  stepper.setAcceleration(STARTUP_ACCEL);
-  gotoAngle(startPosition);
-  
-  // Wait for motor to reach start position before showing welcome
-  while(stepper.distanceToGo() != 0) {
-    stepper.run();
-  }
-  
-  // Reset to normal speed after reaching start position
-  stepper.setMaxSpeed(MAX_SPEED);
-  stepper.setAcceleration(ACCEL);
+  // Set motor position to start position (vertical = 0 degrees)
+  stepper.setCurrentPosition(degToSteps(startPosition));
+  stepper.disableOutputs();
   
   // Welcome screen
   delay(1000);
-  digitalWrite(RELAY_PIN, LOW);
   lcd.setCursor(2, 0);
   lcd.print("FISIOTERAPI");
   lcd.setCursor(1, 1);
@@ -317,9 +308,8 @@ void loop() {
           stepper.run();
         }
         
-        digitalWrite(RELAY_PIN, LOW);
-        turnOffAllTherapy();
         stepper.disableOutputs();
+        turnOffAllTherapy();
         
         // Update Blynk and send notification
         Blynk.virtualWrite(V5, 0); // Reset start button
@@ -335,7 +325,7 @@ void loop() {
           stepper.run();
         }
         
-        digitalWrite(RELAY_PIN, LOW);
+        stepper.disableOutputs();
         turnOffAllTherapy();
         
         // Update Blynk for manual therapy stop
@@ -569,10 +559,10 @@ void controlMotor() {
     lastMotorMove = millis();
     
     if (motorDirection) {
-      gotoAngle(upperLimit);  // Move to lower position (10°)
+      gotoAngle(startPosition);  // Move back to 0 degrees (vertical)
       motorDirection = false;
     } else {
-      gotoAngle(targetAngle); // Move back to target angle (40°/50°/60°)
+      gotoAngle(targetAngle); // Move to target angle (40°/50°/60°)
       motorDirection = true;
     }
   }
@@ -589,7 +579,7 @@ void finishTherapy() {
     stepper.run();
   }
   
-  digitalWrite(RELAY_PIN, LOW);
+  stepper.disableOutputs();
   turnOffAllTherapy();
   stepper.disableOutputs();
   
