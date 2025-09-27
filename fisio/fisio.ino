@@ -1,3 +1,6 @@
+#define BLYNK_TEMPLATE_ID "TMPL63aYrJmk0"
+#define BLYNK_TEMPLATE_NAME "Terapi"
+
 #include <LiquidCrystal_I2C.h>
 #include <AccelStepper.h>
 #include <WiFi.h>
@@ -6,7 +9,7 @@
 #include <RBDdimmer.h>
 
 // Blynk credentials
-char auth[] = "YOUR_BLYNK_AUTH_TOKEN";
+char auth[] = "ovrmaf7895-iPkp2mYD7GD73jLkgYs-L";
 
 // LCD I2C (address 0x27, 16x2)
 LiquidCrystal_I2C lcd(0x27, 16, 2);
@@ -59,9 +62,10 @@ int blynkAngle = 0;
 int blynkDuration = 0;
 
 // Motor variables
-int startPosition = 80;
+int startPosition = 90;  // Vertical position
 int targetAngle = 40;
-bool motorDirection = true;
+int upperLimit = 80;     // Upper limit for therapy movement
+bool motorDirection = true;  // true = to target angle, false = to upper limit
 unsigned long lastMotorMove = 0;
 const unsigned long motorDelay = 2000;
 
@@ -94,8 +98,7 @@ inline long degToSteps(float deg) {
 }
 
 void gotoAngle(float deg) {
-  float actualAngle = 90.0 - deg;
-  stepper.moveTo(degToSteps(actualAngle));
+  stepper.moveTo(degToSteps(deg));
 }
 
 // Non-blocking buzzer functions
@@ -618,7 +621,7 @@ void updateTherapyTimer() {
     }
     
     digitalWrite(RELAY_PIN, LOW);
-    turnOffAllTherapyRelays();
+    turnOffAllTherapy();
     buzzerFinish();
     
     // Send Blynk notification and update for all therapy
@@ -659,10 +662,10 @@ void updateTherapyTimer() {
 void controlMotor() {
   if (millis() - lastMotorMove >= motorDelay && stepper.distanceToGo() == 0) {
     if (motorDirection) {
-      gotoAngle(targetAngle);
+      gotoAngle(targetAngle);  // Move to selected angle (40°, 50°, or 60°)
       motorDirection = false;
     } else {
-      gotoAngle(startPosition);
+      gotoAngle(upperLimit);   // Move to upper limit (80°)
       motorDirection = true;
     }
     lastMotorMove = millis();
