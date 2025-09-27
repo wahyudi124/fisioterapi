@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <BlynkSimpleEsp32.h>
 #include <WiFiManager.h>
+#include <RBDdimmer.h>
 
 // Blynk credentials
 char auth[] = "YOUR_BLYNK_AUTH_TOKEN";
@@ -13,7 +14,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 // Button pins
 #define BTN1 18
 #define BTN2 17
-#define BTN3 16
+#define BTN3 19
 
 // Stepper motor pins
 #define PUL_PIN 13   // STEP/PUL
@@ -22,14 +23,16 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define RELAY_PIN 26
 #define BUZZER_PIN 4
 
-// Therapy relay pins
-#define RELAY_HEAT_LOW 25
-#define RELAY_HEAT_MEDIUM 23
-#define RELAY_HEAT_HIGH 19
+// Dimmer and cold relay pins
+#define DIMMER_OUTPUT_PIN 16
+#define DIMMER_ZEROCROSS_PIN 33
 #define RELAY_COLD 27
 
 // Stepper motor setup
 AccelStepper stepper(AccelStepper::DRIVER, PUL_PIN, DIR_PIN);
+
+// Dimmer setup
+dimmerLamp dimmer(DIMMER_OUTPUT_PIN, DIMMER_ZEROCROSS_PIN);
 const long STEPS_PER_REV = 6400;
 const float MAX_SPEED = 1200.0;
 const float THERAPY_SPEED = 2400.0;
@@ -123,23 +126,20 @@ void buzzerCancel() {
   digitalWrite(BUZZER_PIN, LOW);
 }
 
-// Therapy relay functions
-void turnOffAllTherapyRelays() {
-  digitalWrite(RELAY_HEAT_LOW, HIGH);    // LOW trigger - HIGH = OFF
-  digitalWrite(RELAY_HEAT_MEDIUM, HIGH); // LOW trigger - HIGH = OFF
-  digitalWrite(RELAY_HEAT_HIGH, HIGH);   // LOW trigger - HIGH = OFF
-  digitalWrite(RELAY_COLD, LOW);         // HIGH trigger - LOW = OFF
+// Therapy control functions
+void turnOffAllTherapy() {
+  dimmer.setPower(0);        // Turn off dimmer
+  digitalWrite(RELAY_COLD, LOW);  // HIGH trigger - LOW = OFF
 }
 
-void activateTherapyRelay() {
-  turnOffAllTherapyRelays(); // Safety: turn off all first
+void activateTherapy() {
+  turnOffAllTherapy(); // Safety: turn off all first
   
   if (mode == 0) { // Hangat mode
-    if (heatLevel == 0) digitalWrite(RELAY_HEAT_HIGH, LOW);      // LOW trigger - LOW = ON
-    else if (heatLevel == 1) digitalWrite(RELAY_HEAT_MEDIUM, LOW); // LOW trigger - LOW = ON
-    else digitalWrite(RELAY_HEAT_LOW, LOW);                      // LOW trigger - LOW = ON
+    int dimmerValue = (heatLevel == 0) ? 90 : (heatLevel == 1) ? 60 : 30;
+    dimmer.setPower(dimmerValue);
   } else { // Dingin mode
-    digitalWrite(RELAY_COLD, HIGH);                              // HIGH trigger - HIGH = ON
+    digitalWrite(RELAY_COLD, HIGH);  // HIGH trigger - HIGH = ON
   }
 }
 
@@ -201,7 +201,7 @@ void stopTherapy() {
   gotoAngle(startPosition);
   
   digitalWrite(RELAY_PIN, LOW);
-  turnOffAllTherapyRelays();
+  turnOffAllTherapy();
   
   buzzerCancel();
   Blynk.virtualWrite(V5, 0);
@@ -218,12 +218,10 @@ void stopTherapy() {
 
 void setup() {
   Serial.begin(9600);
-  // Therapy relay setup (LOW trigger)
-  pinMode(RELAY_HEAT_LOW, OUTPUT);
-  pinMode(RELAY_HEAT_MEDIUM, OUTPUT);
-  pinMode(RELAY_HEAT_HIGH, OUTPUT);
+  // Dimmer and cold relay setup
+  dimmer.begin(NORMAL_MODE, OFF);
   pinMode(RELAY_COLD, OUTPUT);
-  turnOffAllTherapyRelays();
+  turnOffAllTherapy();
   lcd.init();
   lcd.backlight();
   pinMode(BTN1, INPUT_PULLUP);
@@ -329,7 +327,7 @@ void loop() {
           }
           
           digitalWrite(RELAY_PIN, LOW);
-          turnOffAllTherapyRelays();
+          turnOffAllTherapy();
           stepper.disableOutputs();
           
           // Update Blynk and send notification
@@ -347,7 +345,7 @@ void loop() {
           }
           
           digitalWrite(RELAY_PIN, LOW);
-          turnOffAllTherapyRelays();
+          turnOffAllTherapy();
           
           // Update Blynk for manual therapy stop
           Blynk.virtualWrite(V5, 0);
@@ -560,7 +558,7 @@ void startCountdown() {
   digitalWrite(RELAY_PIN, HIGH);
   stepper.enableOutputs();
   gotoAngle(startPosition);
-  activateTherapyRelay();
+  activateTherapy();
   
   countdownValue = 3;
   countdownStart = millis();
