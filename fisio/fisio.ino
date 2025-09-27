@@ -86,10 +86,7 @@ bool cancelScreenActive = false;
 
 // Button variables
 unsigned long lastButtonPress = 0;
-unsigned long btn1HoldStart = 0;
-bool btn1Holding = false;
 const unsigned long debounceDelay = 300;
-const unsigned long longPressDelay = 2000;
 
 // Stepper functions
 inline long degToSteps(float deg) {
@@ -305,80 +302,70 @@ void loop() {
   bool btn2 = !digitalRead(BTN2);
   bool btn3 = !digitalRead(BTN3);
   
-  // Handle BTN1 long press for cancel
-  if (btn1 && ((state >= 1 && state <= 4) || (state == 6 && therapyActive))) {
-    if (!btn1Holding) {
-      btn1HoldStart = millis();
-      btn1Holding = true;
-    }
-    else if (millis() - btn1HoldStart >= longPressDelay) {
-      if (state == 6 && therapyActive) {
-        if (remoteTherapyActive) {
-          // Stop remote therapy via button
-          therapyActive = false;
-          remoteTherapyActive = false;
-          
-          stepper.setMaxSpeed(MAX_SPEED);
-          gotoAngle(startPosition);
-          
-          // Wait for motor to reach start position
-          while(stepper.distanceToGo() != 0) {
-            stepper.run();
-          }
-          
-          digitalWrite(RELAY_PIN, LOW);
-          turnOffAllTherapy();
-          stepper.disableOutputs();
-          
-          // Update Blynk and send notification
-          Blynk.virtualWrite(V5, 0); // Reset start button
-          Blynk.virtualWrite(V6, "DEVICE READY"); // Reset to ready
-          Blynk.logEvent("therapy_stopped", "Terapi dihentikan melalui tombol fisik!");
-        } else {
-          therapyActive = false;
-          stepper.setMaxSpeed(MAX_SPEED);
-          gotoAngle(startPosition);
-          
-          // Wait for motor to reach start position
-          while(stepper.distanceToGo() != 0) {
-            stepper.run();
-          }
-          
-          digitalWrite(RELAY_PIN, LOW);
-          turnOffAllTherapy();
-          
-          // Update Blynk for manual therapy stop
-          Blynk.virtualWrite(V5, 0);
-          Blynk.virtualWrite(V6, "DEVICE READY");
-          Blynk.logEvent("therapy_stopped", "Terapi dihentikan melalui tombol fisik!");
+  // Handle BTN3 for stop/cancel
+  if (btn3 && ((state >= 1 && state <= 4) || (state == 6 && therapyActive))) {
+    if (state == 6 && therapyActive) {
+      if (remoteTherapyActive) {
+        // Stop remote therapy via button
+        therapyActive = false;
+        remoteTherapyActive = false;
+        
+        stepper.setMaxSpeed(MAX_SPEED);
+        gotoAngle(startPosition);
+        
+        // Wait for motor to reach start position
+        while(stepper.distanceToGo() != 0) {
+          stepper.run();
         }
+        
+        digitalWrite(RELAY_PIN, LOW);
+        turnOffAllTherapy();
+        stepper.disableOutputs();
+        
+        // Update Blynk and send notification
+        Blynk.virtualWrite(V5, 0); // Reset start button
+        Blynk.virtualWrite(V6, "DEVICE READY"); // Reset to ready
+        Blynk.logEvent("therapy_stopped", "Terapi dihentikan melalui tombol fisik!");
+      } else {
+        therapyActive = false;
+        stepper.setMaxSpeed(MAX_SPEED);
+        gotoAngle(startPosition);
+        
+        // Wait for motor to reach start position
+        while(stepper.distanceToGo() != 0) {
+          stepper.run();
+        }
+        
+        digitalWrite(RELAY_PIN, LOW);
+        turnOffAllTherapy();
+        
+        // Update Blynk for manual therapy stop
+        Blynk.virtualWrite(V5, 0);
+        Blynk.virtualWrite(V6, "DEVICE READY");
+        Blynk.logEvent("therapy_stopped", "Terapi dihentikan melalui tombol fisik!");
       }
-      buzzerCancel();
-      state = 7;
-      selection = 0;
-      btn1Holding = false;
-      cancelScreenActive = true;
-      cancelScreenStart = millis();
-      lcd.clear();
-      lcd.setCursor(4, 0);
-      lcd.print("DIBATAL");
-      lcd.setCursor(1, 1);
-      lcd.print("Kembali menu");
-      return;
     }
-  }
-  else {
-    btn1Holding = false;
+    buzzerCancel();
+    state = 7;
+    selection = 0;
+    cancelScreenActive = true;
+    cancelScreenStart = millis();
+    lcd.clear();
+    lcd.setCursor(4, 0);
+    lcd.print("DIBATAL");
+    lcd.setCursor(1, 1);
+    lcd.print("Kembali menu");
+    return;
   }
   
   // Normal button handling (only if not remote therapy)
-  if (!remoteTherapyActive && (btn1 || btn2 || btn3) && (millis() - lastButtonPress > debounceDelay)) {
+  if (!remoteTherapyActive && (btn1 || btn2) && (millis() - lastButtonPress > debounceDelay)) {
     lastButtonPress = millis();
     buzzerBeep();
     
     switch(state) {
       case 0: // Welcome
-        if (btn1 || btn2 || btn3) {
+        if (btn1 || btn2) {
           state = 1;
           selection = 0;
           showModeSelection();
@@ -386,12 +373,8 @@ void loop() {
         break;
         
       case 1: // Mode selection
-        if (btn2 && selection > 0) {
-          selection--;
-          showModeSelection();
-        }
-        else if (btn3 && selection < 1) {
-          selection++;
+        if (btn2) {
+          selection = (selection + 1) % 2;
           showModeSelection();
         }
         else if (btn1) {
@@ -409,12 +392,8 @@ void loop() {
         break;
         
       case 2: // Heat level selection (only for hangat mode)
-        if (btn2 && selection > 0) {
-          selection--;
-          showHeatLevelSelection();
-        }
-        else if (btn3 && selection < 2) {
-          selection++;
+        if (btn2) {
+          selection = (selection + 1) % 3;
           showHeatLevelSelection();
         }
         else if (btn1) {
@@ -426,12 +405,8 @@ void loop() {
         break;
         
       case 3: // Angle selection
-        if (btn2 && selection > 0) {
-          selection--;
-          showAngleSelection();
-        }
-        else if (btn3 && selection < 2) {
-          selection++;
+        if (btn2) {
+          selection = (selection + 1) % 3;
           showAngleSelection();
         }
         else if (btn1) {
@@ -443,12 +418,8 @@ void loop() {
         break;
         
       case 4: // Duration selection
-        if (btn2 && selection > 0) {
-          selection--;
-          showDurationSelection();
-        }
-        else if (btn3 && selection < 2) {
-          selection++;
+        if (btn2) {
+          selection = (selection + 1) % 3;
           showDurationSelection();
         }
         else if (btn1) {
