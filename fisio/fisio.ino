@@ -559,11 +559,11 @@ void controlMotor() {
     lastMotorMove = millis();
     
     if (motorDirection) {
-      gotoAngle(startPosition);  // Move back to 0 degrees (vertical)
-      motorDirection = true;
-    } else {
       gotoAngle(targetAngle); // Move to target angle (40°/50°/60°)
       motorDirection = false;
+    } else {
+      gotoAngle(startPosition);  // Move back to 0 degrees (vertical)
+      motorDirection = true;
     }
   }
 }
