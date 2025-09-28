@@ -185,7 +185,15 @@ BLYNK_WRITE(V5) {
     heatLevel = blynkHeatLevel;
     angle = blynkAngle;
     duration = blynkDuration;
-    targetAngle = (angle == 0) ? 40 : (angle == 1) ? 50 : 60;
+    if (angle == 0) targetAngle = 40;
+    else if (angle == 1) targetAngle = 50;
+    else targetAngle = 60;
+    
+    // Debug print for remote therapy
+    Serial.print("Remote Therapy - angle: ");
+    Serial.print(angle);
+    Serial.print(", targetAngle: ");
+    Serial.println(targetAngle);
     
     // Start remote therapy with countdown
     remoteTherapyActive = true;
@@ -444,7 +452,15 @@ void loop() {
         }
         else if (btn1) {
           duration = selection;
-          targetAngle = (angle == 0) ? 40 : (angle == 1) ? 50 : 60;
+          if (angle == 0) targetAngle = 40;
+          else if (angle == 1) targetAngle = 50;
+          else targetAngle = 60;
+          
+          // Debug print for manual therapy
+          Serial.print("Manual Therapy - angle: ");
+          Serial.print(angle);
+          Serial.print(", targetAngle: ");
+          Serial.println(targetAngle);
           
           // Sync manual control values to Blynk
           Blynk.virtualWrite(V1, mode);
@@ -571,8 +587,11 @@ void handleCountdown() {
       startTime = millis();
       therapyTime = (duration == 0) ? 300000UL : (duration == 1) ? 600000UL : 900000UL;
       stepper.setMaxSpeed(THERAPY_SPEED);
+      
+      // Initialize motor variables for both manual and remote therapy
       motorDirection = true;
       lastMotorMove = millis();
+      gotoAngle(startPosition); // Start from initial position
       
       // Update Blynk timer saat mulai terapi (semua terapi)
       int minutes = therapyTime / 60000;
@@ -680,10 +699,14 @@ void controlMotor() {
   if (millis() - lastMotorMove >= motorDelay && stepper.distanceToGo() == 0) {
     if (motorDirection) {
       // CCW movement from start position (10°) to target angle (40°/50°/60°)
+      Serial.print("Moving to targetAngle: ");
+      Serial.println(targetAngle);
       gotoAngle(targetAngle);
       motorDirection = false;
     } else {
       // CW movement back to start position (10°)
+      Serial.print("Moving to startPosition: ");
+      Serial.println(startPosition);
       gotoAngle(startPosition);
       motorDirection = true;
     }
