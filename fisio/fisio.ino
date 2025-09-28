@@ -738,6 +738,7 @@ void handleCancelScreen() {
     lcd.setCursor(2, 0);
     lcd.print("FISIOTERAPI");
     lcd.setCursor(1, 1);
-    lcd.print("Tekan tombol...");
+    lcd.print("Tekan tombol......");
   }
 }
+
