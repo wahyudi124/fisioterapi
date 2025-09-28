@@ -6,7 +6,6 @@
 #include <WiFi.h>
 #include <BlynkSimpleEsp32.h>
 #include <WiFiManager.h>
-#include <RBDdimmer.h>
 
 // Blynk credentials
 char auth[] = "ovrmaf7895-iPkp2mYD7GD73jLkgYs-L";
@@ -26,16 +25,14 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define RELAY_PIN 26
 #define BUZZER_PIN 4
 
-// Dimmer and cold relay pins
-#define DIMMER_OUTPUT_PIN 16
-#define DIMMER_ZEROCROSS_PIN 33
+// Therapy relay pins
+#define RELAY_HEAT_LOW 25
+#define RELAY_HEAT_MEDIUM 23
+#define RELAY_HEAT_HIGH 32
 #define RELAY_COLD 27
 
 // Stepper motor setup
 AccelStepper stepper(AccelStepper::DRIVER, PUL_PIN, DIR_PIN);
-
-// Dimmer setup
-dimmerLamp dimmer(DIMMER_OUTPUT_PIN, DIMMER_ZEROCROSS_PIN);
 const long STEPS_PER_REV = 6400;
 const float MAX_SPEED = 1200.0;
 const float THERAPY_SPEED = 2400.0;
@@ -62,9 +59,9 @@ int blynkAngle = 0;
 int blynkDuration = 0;
 
 // Motor variables
-int startPosition = 0;   // Vertical position (0 degrees)
+int startPosition = 80;
 int targetAngle = 40;
-bool motorDirection = true;  // true = to target angle, false = back to 0
+bool motorDirection = true;
 unsigned long lastMotorMove = 0;
 const unsigned long motorDelay = 2000;
 
@@ -89,7 +86,10 @@ bool cancelScreenActive = false;
 
 // Button variables
 unsigned long lastButtonPress = 0;
+unsigned long btn1HoldStart = 0;
+bool btn1Holding = false;
 const unsigned long debounceDelay = 300;
+const unsigned long longPressDelay = 2000;
 
 // Stepper functions
 inline long degToSteps(float deg) {
@@ -97,7 +97,8 @@ inline long degToSteps(float deg) {
 }
 
 void gotoAngle(float deg) {
-  stepper.moveTo(degToSteps(deg));
+  float actualAngle = 90.0 - deg;
+  stepper.moveTo(degToSteps(actualAngle));
 }
 
 // Non-blocking buzzer functions
@@ -125,20 +126,23 @@ void buzzerCancel() {
   digitalWrite(BUZZER_PIN, LOW);
 }
 
-// Therapy control functions
-void turnOffAllTherapy() {
-  dimmer.setPower(0);        // Turn off dimmer
-  digitalWrite(RELAY_COLD, LOW);  // HIGH trigger - LOW = OFF
+// Therapy relay functions
+void turnOffAllTherapyRelays() {
+  digitalWrite(RELAY_HEAT_LOW, HIGH);    // LOW trigger - HIGH = OFF
+  digitalWrite(RELAY_HEAT_MEDIUM, HIGH); // LOW trigger - HIGH = OFF
+  digitalWrite(RELAY_HEAT_HIGH, HIGH);   // LOW trigger - HIGH = OFF
+  digitalWrite(RELAY_COLD, LOW);         // HIGH trigger - LOW = OFF
 }
 
-void activateTherapy() {
-  turnOffAllTherapy(); // Safety: turn off all first
+void activateTherapyRelay() {
+  turnOffAllTherapyRelays(); // Safety: turn off all first
   
   if (mode == 0) { // Hangat mode
-    int dimmerValue = (heatLevel == 0) ? 90 : (heatLevel == 1) ? 60 : 30;
-    dimmer.setPower(dimmerValue);
+    if (heatLevel == 0) digitalWrite(RELAY_HEAT_HIGH, LOW);      // LOW trigger - LOW = ON
+    else if (heatLevel == 1) digitalWrite(RELAY_HEAT_MEDIUM, LOW); // LOW trigger - LOW = ON
+    else digitalWrite(RELAY_HEAT_LOW, LOW);                      // LOW trigger - LOW = ON
   } else { // Dingin mode
-    digitalWrite(RELAY_COLD, HIGH);  // HIGH trigger - HIGH = ON
+    digitalWrite(RELAY_COLD, HIGH);                              // HIGH trigger - HIGH = ON
   }
 }
 
@@ -190,6 +194,8 @@ BLYNK_WRITE(V5) {
   }
 }
 
+
+
 void stopTherapy() {
   therapyActive = false;
   remoteTherapyActive = false;
@@ -197,13 +203,8 @@ void stopTherapy() {
   stepper.setMaxSpeed(MAX_SPEED);
   gotoAngle(startPosition);
   
-  // Wait for motor to reach start position
-  while(stepper.distanceToGo() != 0) {
-    stepper.run();
-  }
-  
-  stepper.disableOutputs();
-  turnOffAllTherapy();
+  digitalWrite(RELAY_PIN, LOW);
+  turnOffAllTherapyRelays();
   
   buzzerCancel();
   Blynk.virtualWrite(V5, 0);
@@ -220,10 +221,12 @@ void stopTherapy() {
 
 void setup() {
   Serial.begin(9600);
-  // Dimmer and cold relay setup
-  dimmer.begin(NORMAL_MODE, ON);
+  // Therapy relay setup (LOW trigger)
+  pinMode(RELAY_HEAT_LOW, OUTPUT);
+  pinMode(RELAY_HEAT_MEDIUM, OUTPUT);
+  pinMode(RELAY_HEAT_HIGH, OUTPUT);
   pinMode(RELAY_COLD, OUTPUT);
-  turnOffAllTherapy();
+  turnOffAllTherapyRelays();
   lcd.init();
   lcd.backlight();
   pinMode(BTN1, INPUT_PULLUP);
@@ -236,8 +239,10 @@ void setup() {
   stepper.setMaxSpeed(MAX_SPEED);
   stepper.setAcceleration(ACCEL);
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, HIGH);
+  digitalWrite(RELAY_PIN, LOW);
   pinMode(BUZZER_PIN, OUTPUT);
+  
+  
   
   // WiFi Manager setup
   WiFiManager wm;
@@ -260,7 +265,16 @@ void setup() {
     ESP.restart();
   }
   
-  // WiFi connected, start Blynk
+
+  // Untuk NIM
+  //delay(1000);
+  // lcd.clear();
+  // lcd.setCursor(0, 0);
+  // lcd.print("ATSAR");
+  // lcd.setCursor(0, 1);
+  // lcd.print("NIM : 90001");
+  // delay(5000);
+
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("WiFi Connected");
@@ -272,12 +286,25 @@ void setup() {
   Blynk.config(auth);
   Blynk.connect();
   
-  // Set motor position to start position (vertical = 0 degrees)
-  stepper.setCurrentPosition(degToSteps(startPosition));
-  stepper.disableOutputs();
+  // Move motor to start position on startup with slow smooth movement
+  digitalWrite(RELAY_PIN, HIGH);
+  stepper.enableOutputs();
+  stepper.setMaxSpeed(STARTUP_SPEED);
+  stepper.setAcceleration(STARTUP_ACCEL);
+  gotoAngle(startPosition);
+  
+  // Wait for motor to reach start position before showing welcome
+  while(stepper.distanceToGo() != 0) {
+    stepper.run();
+  }
+  
+  // Reset to normal speed after reaching start position
+  stepper.setMaxSpeed(MAX_SPEED);
+  stepper.setAcceleration(ACCEL);
   
   // Welcome screen
   delay(1000);
+  digitalWrite(RELAY_PIN, LOW);
   lcd.setCursor(2, 0);
   lcd.print("FISIOTERAPI");
   lcd.setCursor(1, 1);
@@ -292,69 +319,80 @@ void loop() {
   bool btn2 = !digitalRead(BTN2);
   bool btn3 = !digitalRead(BTN3);
   
-  // Handle BTN3 for stop/cancel
-  if (btn3 && ((state >= 1 && state <= 4) || (state == 6 && therapyActive))) {
-    if (state == 6 && therapyActive) {
-      if (remoteTherapyActive) {
-        // Stop remote therapy via button
-        therapyActive = false;
-        remoteTherapyActive = false;
-        
-        stepper.setMaxSpeed(MAX_SPEED);
-        gotoAngle(startPosition);
-        
-        // Wait for motor to reach start position
-        while(stepper.distanceToGo() != 0) {
-          stepper.run();
-        }
-        
-        stepper.disableOutputs();
-        turnOffAllTherapy();
-        
-        // Update Blynk and send notification
-        Blynk.virtualWrite(V5, 0); // Reset start button
-        Blynk.virtualWrite(V6, "DEVICE READY"); // Reset to ready
-        Blynk.logEvent("therapy_stopped", "Terapi dihentikan melalui tombol fisik!");
-      } else {
-        therapyActive = false;
-        stepper.setMaxSpeed(MAX_SPEED);
-        gotoAngle(startPosition);
-        
-        // Wait for motor to reach start position
-        while(stepper.distanceToGo() != 0) {
-          stepper.run();
-        }
-        
-        stepper.disableOutputs();
-        turnOffAllTherapy();
-        
-        // Update Blynk for manual therapy stop
-        Blynk.virtualWrite(V5, 0);
-        Blynk.virtualWrite(V6, "DEVICE READY");
-        Blynk.logEvent("therapy_stopped", "Terapi dihentikan melalui tombol fisik!");
-      }
+  // Handle BTN1 long press for cancel
+  if (btn1 && ((state >= 1 && state <= 4) || (state == 6 && therapyActive))) {
+    if (!btn1Holding) {
+      btn1HoldStart = millis();
+      btn1Holding = true;
     }
-    buzzerCancel();
-    state = 7;
-    selection = 0;
-    cancelScreenActive = true;
-    cancelScreenStart = millis();
-    lcd.clear();
-    lcd.setCursor(4, 0);
-    lcd.print("DIBATAL");
-    lcd.setCursor(1, 1);
-    lcd.print("Kembali menu");
-    return;
+    else if (millis() - btn1HoldStart >= longPressDelay) {
+      if (state == 6 && therapyActive) {
+        if (remoteTherapyActive) {
+          // Stop remote therapy via button
+          therapyActive = false;
+          remoteTherapyActive = false;
+          
+          stepper.setMaxSpeed(MAX_SPEED);
+          gotoAngle(startPosition);
+          
+          // Wait for motor to reach start position
+          while(stepper.distanceToGo() != 0) {
+            stepper.run();
+          }
+          
+          digitalWrite(RELAY_PIN, LOW);
+          turnOffAllTherapyRelays();
+          stepper.disableOutputs();
+          
+          // Update Blynk and send notification
+          Blynk.virtualWrite(V5, 0); // Reset start button
+          Blynk.virtualWrite(V6, "DEVICE READY"); // Reset to ready
+          Blynk.logEvent("therapy_stopped", "Terapi dihentikan melalui tombol fisik!");
+        } else {
+          therapyActive = false;
+          stepper.setMaxSpeed(MAX_SPEED);
+          gotoAngle(startPosition);
+          
+          // Wait for motor to reach start position
+          while(stepper.distanceToGo() != 0) {
+            stepper.run();
+          }
+          
+          digitalWrite(RELAY_PIN, LOW);
+          turnOffAllTherapyRelays();
+          
+          // Update Blynk for manual therapy stop
+          Blynk.virtualWrite(V5, 0);
+          Blynk.virtualWrite(V6, "DEVICE READY");
+          Blynk.logEvent("therapy_stopped", "Terapi dihentikan melalui tombol fisik!");
+        }
+      }
+      buzzerCancel();
+      state = 7;
+      selection = 0;
+      btn1Holding = false;
+      cancelScreenActive = true;
+      cancelScreenStart = millis();
+      lcd.clear();
+      lcd.setCursor(4, 0);
+      lcd.print("DIBATAL");
+      lcd.setCursor(1, 1);
+      lcd.print("Kembali menu");
+      return;
+    }
+  }
+  else {
+    btn1Holding = false;
   }
   
   // Normal button handling (only if not remote therapy)
-  if (!remoteTherapyActive && (btn1 || btn2) && (millis() - lastButtonPress > debounceDelay)) {
+  if (!remoteTherapyActive && (btn1 || btn2 || btn3) && (millis() - lastButtonPress > debounceDelay)) {
     lastButtonPress = millis();
     buzzerBeep();
     
     switch(state) {
       case 0: // Welcome
-        if (btn1 || btn2) {
+        if (btn1 || btn2 || btn3) {
           state = 1;
           selection = 0;
           showModeSelection();
@@ -362,8 +400,12 @@ void loop() {
         break;
         
       case 1: // Mode selection
-        if (btn2) {
-          selection = (selection + 1) % 2;
+        if (btn2 && selection > 0) {
+          selection--;
+          showModeSelection();
+        }
+        else if (btn3 && selection < 1) {
+          selection++;
           showModeSelection();
         }
         else if (btn1) {
@@ -381,8 +423,12 @@ void loop() {
         break;
         
       case 2: // Heat level selection (only for hangat mode)
-        if (btn2) {
-          selection = (selection + 1) % 3;
+        if (btn2 && selection > 0) {
+          selection--;
+          showHeatLevelSelection();
+        }
+        else if (btn3 && selection < 2) {
+          selection++;
           showHeatLevelSelection();
         }
         else if (btn1) {
@@ -394,8 +440,12 @@ void loop() {
         break;
         
       case 3: // Angle selection
-        if (btn2) {
-          selection = (selection + 1) % 3;
+        if (btn2 && selection > 0) {
+          selection--;
+          showAngleSelection();
+        }
+        else if (btn3 && selection < 2) {
+          selection++;
           showAngleSelection();
         }
         else if (btn1) {
@@ -407,8 +457,12 @@ void loop() {
         break;
         
       case 4: // Duration selection
-        if (btn2) {
-          selection = (selection + 1) % 3;
+        if (btn2 && selection > 0) {
+          selection--;
+          showDurationSelection();
+        }
+        else if (btn3 && selection < 2) {
+          selection++;
           showDurationSelection();
         }
         else if (btn1) {
@@ -439,87 +493,157 @@ void loop() {
     updateTherapyTimer();
     controlMotor();
     
-    // Update Blynk status periodically
-    if (millis() - lastBlynkUpdate > blynkUpdateInterval) {
+    // Update Blynk timer every 15 seconds (semua terapi)
+    if (millis() - lastBlynkUpdate >= blynkUpdateInterval) {
+      updateBlynkTimer();
       lastBlynkUpdate = millis();
-      updateBlynkStatus();
     }
+  }
+  
+  if (state == 8 && finishScreenActive) {
+    handleFinishScreen();
   }
   
   if (state == 7 && cancelScreenActive) {
-    if (millis() - cancelScreenStart > 2000) {
-      cancelScreenActive = false;
-      state = 0;
-      lcd.clear();
-      lcd.setCursor(2, 0);
-      lcd.print("FISIOTERAPI");
-      lcd.setCursor(1, 1);
-      lcd.print("Tekan tombol...");
-    }
-  }
-  
-  if (finishScreenActive) {
-    if (millis() - finishScreenStart > 3000) {
-      finishScreenActive = false;
-      state = 0;
-      lcd.clear();
-      lcd.setCursor(2, 0);
-      lcd.print("FISIOTERAPI");
-      lcd.setCursor(1, 1);
-      lcd.print("Tekan tombol...");
-    }
+    handleCancelScreen();
   }
 }
 
+void updateBlynkTimer() {
+  unsigned long elapsed = millis() - startTime;
+  unsigned long remaining = therapyTime - elapsed;
+  
+  if (remaining > 0) {
+    int minutes = remaining / 60000;
+    int seconds = (remaining % 60000) / 1000;
+    
+    String timeStr = "";
+    if (minutes < 10) timeStr += "0";
+    timeStr += String(minutes);
+    timeStr += ":";
+    if (seconds < 10) timeStr += "0";
+    timeStr += String(seconds);
+    
+    Blynk.virtualWrite(V6, timeStr);
+  }
+}
+
+
+
+void showModeSelection() {
+  lcd.clear();
+  lcd.setCursor(2, 0);
+  lcd.print("Pilih Mode");
+  lcd.setCursor(4, 1);
+  lcd.print(selection == 0 ? "HANGAT" : "DINGIN");
+}
+
+void showHeatLevelSelection() {
+  lcd.clear();
+  lcd.setCursor(1, 0);
+  lcd.print("Level Hangat");
+  lcd.setCursor(4, 1);
+  if (selection == 0) lcd.print("TINGGI");
+  else if (selection == 1) lcd.print("SEDANG");
+  else lcd.print("RENDAH");
+}
+
+void showAngleSelection() {
+  lcd.clear();
+  lcd.setCursor(2, 0);
+  lcd.print("Sudut Terapi");
+  lcd.setCursor(6, 1);
+  if (selection == 0) lcd.print("40°");
+  else if (selection == 1) lcd.print("50°");
+  else lcd.print("60°");
+}
+
+void showDurationSelection() {
+  lcd.clear();
+  lcd.setCursor(2, 0);
+  lcd.print("Waktu Terapi");
+  lcd.setCursor(5, 1);
+  if (selection == 0) lcd.print("5 min");
+  else if (selection == 1) lcd.print("10 min");
+  else lcd.print("15 min");
+}
+
 void startCountdown() {
-  countdownValue = 5;
+  digitalWrite(RELAY_PIN, HIGH);
+  stepper.enableOutputs();
+  gotoAngle(startPosition);
+  activateTherapyRelay();
+  
+  countdownValue = 3;
   countdownStart = millis();
   countdownActive = true;
+  
   lcd.clear();
-  lcd.setCursor(5, 0);
-  lcd.print("MULAI");
-  lcd.setCursor(7, 1);
-  lcd.print(countdownValue);
+  lcd.setCursor(4, 0);
+  lcd.print("MEMULAI");
+  lcd.setCursor(6, 1);
+  lcd.print("3");
 }
 
 void handleCountdown() {
   if (millis() - countdownStart >= 1000) {
     countdownValue--;
-    countdownStart = millis();
-    
-    if (countdownValue > 0) {
-      lcd.setCursor(7, 1);
-      lcd.print(countdownValue);
-    } else {
+    if (countdownValue <= 0) {
       countdownActive = false;
-      startTherapy();
+      therapyActive = true;
+      startTime = millis();
+      therapyTime = (duration == 0) ? 300000UL : (duration == 1) ? 600000UL : 900000UL;
+      stepper.setMaxSpeed(THERAPY_SPEED);
+      motorDirection = true;
+      lastMotorMove = millis();
+      
+      // Update Blynk timer saat mulai terapi (semua terapi)
+      int minutes = therapyTime / 60000;
+      int seconds = (therapyTime % 60000) / 1000;
+      String timeStr = "";
+      if (minutes < 10) timeStr += "0";
+      timeStr += String(minutes);
+      timeStr += ":";
+      if (seconds < 10) timeStr += "0";
+      timeStr += String(seconds);
+      Blynk.virtualWrite(V6, timeStr);
+      lastBlynkUpdate = millis();
+      
+      buzzerStart();
+      state = 6;
+      lcd.clear();
+      lcd.setCursor(2, 0);
+      if (remoteTherapyActive) {
+        lcd.print("Remote ");
+        if (mode == 0) {
+          lcd.print((heatLevel == 0) ? "T" : (heatLevel == 1) ? "S" : "R");
+          lcd.print(" ");
+          lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
+        } else {
+          lcd.print("Dingin ");
+          lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
+        }
+      } else {
+        if (mode == 0) {
+          lcd.print("Hangat ");
+          lcd.print((heatLevel == 0) ? "T" : (heatLevel == 1) ? "S" : "R");
+          lcd.print(" ");
+          lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
+        } else {
+          lcd.print("Dingin ");
+          lcd.print((angle == 0) ? "40°" : (angle == 1) ? "50°" : "60°");
+        }
+      }
+    } else {
+      countdownStart = millis();
+      lcd.setCursor(6, 1);
+      lcd.print(countdownValue);
+      
+      // Update Blynk countdown (semua terapi)
+      String timeStr = "00:0" + String(countdownValue);
+      Blynk.virtualWrite(V6, timeStr);
     }
   }
-}
-
-void startTherapy() {
-  therapyActive = true;
-  startTime = millis();
-  therapyTime = (duration == 0) ? 300000 : (duration == 1) ? 600000 : 900000; // 5, 10, 15 min
-  
-  digitalWrite(RELAY_PIN, HIGH);
-  stepper.enableOutputs();
-  stepper.setMaxSpeed(THERAPY_SPEED);
-  
-  activateTherapy();
-  buzzerStart();
-  
-  state = 6;
-  // Ensure motor starts from 0 position
-  stepper.setCurrentPosition(degToSteps(startPosition));
-  motorDirection = false;  // false = at 0, will move to target next
-  lastMotorMove = millis(); // Initialize timer
-  gotoAngle(-targetAngle);  // Use negative angle for CCW movement
-  
-  Blynk.virtualWrite(V6, "TERAPI AKTIF");
-  Blynk.logEvent("therapy_started", "Terapi dimulai!");
-  
-  updateTherapyDisplay();
 }
 
 void updateTherapyTimer() {
@@ -527,131 +651,91 @@ void updateTherapyTimer() {
   unsigned long remaining = therapyTime - elapsed;
   
   if (remaining <= 0) {
-    finishTherapy();
+    therapyActive = false;
+    stepper.setMaxSpeed(MAX_SPEED);
+    gotoAngle(startPosition);
+    
+    // Wait for motor to reach start position
+    while(stepper.distanceToGo() != 0) {
+      stepper.run();
+    }
+    
+    digitalWrite(RELAY_PIN, LOW);
+    turnOffAllTherapyRelays();
+    buzzerFinish();
+    
+    // Send Blynk notification and update for all therapy
+    Blynk.logEvent("therapy_finish", "Terapi fisioterapi telah selesai!");
+    Blynk.virtualWrite(V5, 0);
+    Blynk.virtualWrite(V6, "DEVICE READY");
+    remoteTherapyActive = false;
+    
+    state = 8;
+    finishScreenActive = true;
+    finishScreenStart = millis();
+    lcd.clear();
+    lcd.setCursor(4, 0);
+    lcd.print("SELESAI");
+    lcd.setCursor(1, 1);
+    lcd.print("Terapi selesai");
     return;
   }
   
-  if (millis() - lastLCDUpdate > lcdUpdateInterval) {
-    lastLCDUpdate = millis();
-    updateTherapyDisplay();
-  }
-}
-
-void updateTherapyDisplay() {
-  unsigned long elapsed = millis() - startTime;
-  unsigned long remaining = therapyTime - elapsed;
-  int minutes = remaining / 60000;
-  int seconds = (remaining % 60000) / 1000;
-  
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print(mode == 0 ? "HANGAT" : "DINGIN");
-  lcd.setCursor(8, 0);
-  lcd.print(targetAngle);
-  lcd.print("deg");
-  lcd.setCursor(4, 1);
-  if (minutes < 10) lcd.print("0");
-  lcd.print(minutes);
-  lcd.print(":");
-  if (seconds < 10) lcd.print("0");
-  lcd.print(seconds);
-}
-
-void controlMotor() {
-  if (stepper.distanceToGo() == 0 && millis() - lastMotorMove > motorDelay) {
-    lastMotorMove = millis();
-    
-    if (motorDirection) {
-      // Currently at target, move back to 0
-      gotoAngle(startPosition);  // Move back to 0 degrees (vertical)
-      motorDirection = false;
-    } else {
-      // Currently at 0, move to target
-      gotoAngle(-targetAngle); // Move to negative target angle for CCW
-      motorDirection = true;
-    }
-  }
-}
-
-void finishTherapy() {
-  therapyActive = false;
-  remoteTherapyActive = false;
-  
-  stepper.setMaxSpeed(MAX_SPEED);
-  gotoAngle(startPosition);
-  
-  while(stepper.distanceToGo() != 0) {
-    stepper.run();
-  }
-  
-  stepper.disableOutputs();
-  turnOffAllTherapy();
-  stepper.disableOutputs();
-  
-  buzzerFinish();
-  
-  Blynk.virtualWrite(V5, 0);
-  Blynk.virtualWrite(V6, "TERAPI SELESAI");
-  Blynk.logEvent("therapy_finished", "Terapi selesai!");
-  
-  finishScreenActive = true;
-  finishScreenStart = millis();
-  
-  lcd.clear();
-  lcd.setCursor(4, 0);
-  lcd.print("SELESAI");
-  lcd.setCursor(2, 1);
-  lcd.print("Terapi selesai");
-}
-
-void showModeSelection() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Mode:");
-  lcd.setCursor(0, 1);
-  lcd.print(selection == 0 ? ">Hangat  Dingin" : " Hangat >Dingin");
-}
-
-void showHeatLevelSelection() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Level Panas:");
-  lcd.setCursor(0, 1);
-  String levels[] = {">HIGH MED LOW", " HIGH>MED LOW", " HIGH MED>LOW"};
-  lcd.print(levels[selection]);
-}
-
-void showAngleSelection() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Sudut:");
-  lcd.setCursor(0, 1);
-  String angles[] = {">40  50  60", " 40 >50  60", " 40  50 >60"};
-  lcd.print(angles[selection]);
-}
-
-void showDurationSelection() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Durasi (menit):");
-  lcd.setCursor(0, 1);
-  String durations[] = {">5  10  15", " 5 >10  15", " 5  10 >15"};
-  lcd.print(durations[selection]);
-}
-
-void updateBlynkStatus() {
-  if (therapyActive) {
-    unsigned long elapsed = millis() - startTime;
-    unsigned long remaining = therapyTime - elapsed;
+  if (millis() - lastLCDUpdate >= lcdUpdateInterval) {
     int minutes = remaining / 60000;
     int seconds = (remaining % 60000) / 1000;
     
-    String status = "TERAPI: ";
-    if (minutes < 10) status += "0";
-    status += String(minutes) + ":";
-    if (seconds < 10) status += "0";
-    status += String(seconds);
+    lcd.setCursor(0, 1);
+    lcd.print("                ");
+    lcd.setCursor(3, 1);
+    lcd.print("Sisa ");
+    if (minutes < 10) lcd.print("0");
+    lcd.print(minutes);
+    lcd.print(":");
+    if (seconds < 10) lcd.print("0");
+    lcd.print(seconds);
     
-    Blynk.virtualWrite(V6, status);
+    lastLCDUpdate = millis();
+  }
+}
+
+void controlMotor() {
+  if (millis() - lastMotorMove >= motorDelay && stepper.distanceToGo() == 0) {
+    if (motorDirection) {
+      // CCW movement to target angle (positive direction from start)
+      gotoAngle(startPosition + targetAngle);
+      motorDirection = false;
+    } else {
+      // CW movement back to start position
+      gotoAngle(startPosition);
+      motorDirection = true;
+    }
+    lastMotorMove = millis();
+  }
+}
+
+void handleFinishScreen() {
+  if (millis() - finishScreenStart >= 3000) {
+    finishScreenActive = false;
+    stepper.disableOutputs();
+    state = 0;
+    lcd.clear();
+    lcd.setCursor(2, 0);
+    lcd.print("FISIOTERAPI");
+    lcd.setCursor(1, 1);
+    lcd.print("Tekan tombol...");
+  }
+}
+
+void handleCancelScreen() {
+  if (millis() - cancelScreenStart >= 1500) {
+    cancelScreenActive = false;
+    stepper.disableOutputs();
+    state = 0;
+    lcd.clear();
+    lcd.setCursor(2, 0);
+    lcd.print("FISIOTERAPI");
+    lcd.setCursor(1, 1);
+    lcd.print("Tekan tombol...");
   }
 }
