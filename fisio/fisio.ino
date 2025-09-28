@@ -59,7 +59,7 @@ int blynkAngle = 0;
 int blynkDuration = 0;
 
 // Motor variables
-int startPosition = 80;
+int startPosition = 10;
 int targetAngle = 40;
 bool motorDirection = true;
 unsigned long lastMotorMove = 0;
@@ -286,11 +286,13 @@ void setup() {
   Blynk.config(auth);
   Blynk.connect();
   
-  // Move motor to start position on startup with slow smooth movement
+  // Move motor to start position on startup with slow smooth movement (CCW)
   digitalWrite(RELAY_PIN, HIGH);
   stepper.enableOutputs();
   stepper.setMaxSpeed(STARTUP_SPEED);
   stepper.setAcceleration(STARTUP_ACCEL);
+  // Set initial position at 0 degrees (actual physical position) for CCW movement to start position
+  stepper.setCurrentPosition(degToSteps(90.0 - 0));
   gotoAngle(startPosition);
   
   // Wait for motor to reach start position before showing welcome
@@ -702,11 +704,11 @@ void updateTherapyTimer() {
 void controlMotor() {
   if (millis() - lastMotorMove >= motorDelay && stepper.distanceToGo() == 0) {
     if (motorDirection) {
-      // CCW movement to target angle (positive direction from start)
-      gotoAngle(startPosition + targetAngle);
+      // CCW movement from start position (10°) to target angle (40°/50°/60°)
+      gotoAngle(targetAngle);
       motorDirection = false;
     } else {
-      // CW movement back to start position
+      // CW movement back to start position (10°)
       gotoAngle(startPosition);
       motorDirection = true;
     }
