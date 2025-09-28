@@ -214,6 +214,11 @@ void stopTherapy() {
   stepper.setMaxSpeed(MAX_SPEED);
   gotoAngle(startPosition);
   
+  // Wait for motor to reach start position
+  while(stepper.distanceToGo() != 0) {
+    stepper.run();
+  }
+  
   digitalWrite(RELAY_PIN, LOW);
   turnOffAllTherapy();
   
